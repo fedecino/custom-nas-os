@@ -84,11 +84,12 @@ cp "${SRC_DIR}/system/udev/99-nas-os-usb-automount.rules" /etc/udev/rules.d/99-n
 chmod +x /usr/local/bin/nas-os-banner.sh /usr/local/sbin/nas-os-install /usr/local/sbin/nas-os-usb-mount /usr/local/sbin/nas-os-update /etc/NetworkManager/dispatcher.d/99-nas-os-banner
 
 echo "==> [6/6] Riavvio servizi..."
+set_status "running:Riavvio servizi SiloOs..."
 udevadm control --reload-rules || true
 systemctl daemon-reload
 systemctl reload nginx || systemctl restart nginx
-set_status "done:Aggiornamento completato"
 systemctl restart nas-os.service
+set_status "done:Aggiornamento completato"
 
 echo ""
 echo "==> Aggiornamento completato! I dati in /DATA e i container Docker sono rimasti intatti."

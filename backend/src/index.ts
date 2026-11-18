@@ -1,3 +1,4 @@
+import http from 'node:http';
 import cors from 'cors';
 import express from 'express';
 import aiRouter from './routes/ai.js';
@@ -12,6 +13,7 @@ import systemRouter from './routes/system.js';
 import usersRouter from './routes/users.js';
 import { ensureBaseDirectories } from './services/docker.js';
 import { systemEvents } from './services/events.js';
+import { attachTerminalWebSocket } from './services/terminal.js';
 
 const PORT = Number(process.env.PORT ?? 3000);
 const app = express();
@@ -57,8 +59,11 @@ async function start(): Promise<void> {
     console.warn('Warning: could not initialize /DATA directories:', err);
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`SiloOS Backend listening on http://0.0.0.0:${PORT}`);
+  const server = http.createServer(app);
+  attachTerminalWebSocket(server);
+
+  server.listen(PORT, '0.0.0.0', () => {
+    console.log(`SiloOs Backend listening on http://0.0.0.0:${PORT}`);
     systemEvents.startBlockDeviceMonitor();
   });
 }

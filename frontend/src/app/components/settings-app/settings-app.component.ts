@@ -1205,25 +1205,92 @@ export class SettingsAppComponent implements OnInit {
     }
   }
 
-  startUpdate(): void {
+  async startUpdate(): Promise<void> {
     const pwd = this.authPassword;
     if (!pwd) return;
     this.updateError.set(null);
 
-    this.api.startSystemUpdate(pwd).subscribe({
-      next: () => {
-        this.authPassword = '';
-        this.showAuthPrompt.set(false);
-        this.updatingSystem.set(true);
-        this.updateStage.set('Aggiornamento pacchetti Debian e SiloOs in corso...');
+    try {
+      const res = await fetch('/api/settings/updates/apply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: pwd }),
+      });
+
+      const contentType = res.headers.get('content-type') ?? '';
+
+      if (!res.ok) {
+        let errMsg = 'Password amministratore non valida';
+        try {
+          const data = (await res.json()) as { error?: string };
+          if (data?.error) errMsg = data.error;
+        } catch {
+          // ignore parse error
+        }
+        this.updateError.set(errMsg);
+        return;
+      }
+
+      this.authPassword = '';
+      this.showAuthPrompt.set(false);
+      this.updatingSystem.set(true);
+      this.updateStage.set('Aggiornamento pacchetti Debian e SiloOs in corso...');
+
+      if (contentType.includes('text/event-stream') && res.body) {
+        await this.consumeLegacySseUpdate(res.body);
+      } else {
         this.pollUpdateUntilDone();
-      },
-      error: (err) => {
-        this.updateError.set(
-          err?.error?.error ?? 'Password amministratore non valida'
-        );
-      },
-    });
+      }
+    } catch (err) {
+      this.updateError.set(
+        err instanceof Error ? err.message : "Errore avvio aggiornamento"
+      );
+    }
+  }
+
+  private async consumeLegacySseUpdate(body: ReadableStream<Uint8Array>): Promise<void> {
+    const reader = body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let currentEvent = 'message';
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+
+        for (const rawLine of lines) {
+          const line = rawLine.trim();
+          if (line.startsWith('event:')) {
+            currentEvent = line.slice(6).trim();
+          } else if (line.startsWith('data:')) {
+            const payload = line.slice(5).trim();
+            if (currentEvent === 'error') {
+              this.updatingSystem.set(false);
+              this.feedbackOk.set(false);
+              this.feedback.set(payload || "Errore durante l'aggiornamento");
+              return;
+            }
+            if (currentEvent === 'log' && payload) {
+              this.updateStage.set(payload.slice(0, 120));
+            }
+            if (currentEvent === 'done') {
+              this.updateStage.set('Riavvio servizi SiloOs in corso...');
+              this.pollUpdateUntilDone();
+              return;
+            }
+          }
+        }
+      }
+    } catch {
+      // Connection often drops when backend restarts mid-update
+    }
+
+    this.updateStage.set('Riavvio servizi SiloOs in corso...');
+    this.pollUpdateUntilDone();
   }
 
   private pollUpdateUntilDone(): void {

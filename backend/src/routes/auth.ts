@@ -81,6 +81,16 @@ async function verifyToken(token: string | undefined): Promise<{ username: strin
   }
 }
 
+export async function authenticateCookieHeader(
+  cookieHeader: string | undefined
+): Promise<{ username: string } | null> {
+  if (process.env.SILO_DEV_NO_AUTH === '1') {
+    return { username: 'dev' };
+  }
+  const cookies = parseCookies(cookieHeader);
+  return verifyToken(cookies[COOKIE_NAME]);
+}
+
 export async function requireAuth(
   req: Request,
   res: Response,

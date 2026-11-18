@@ -7,7 +7,7 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 echo "==========================================================="
-echo "   NAS-OS Direct SSD Installer (Debian 13 Trixie)"
+echo "   SiloOs Direct SSD Installer (Debian 13 Trixie)"
 echo "==========================================================="
 echo ""
 echo "Dischi disponibili:"

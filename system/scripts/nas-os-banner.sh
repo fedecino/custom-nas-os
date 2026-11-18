@@ -22,15 +22,15 @@ generate_banner() {
   echo ""
   if [ -d /run/live/medium ]; then
     echo ""
-    echo "   Modalita' LIVE attiva: per installare NAS-OS su SSD:"
+    echo "   Modalita' LIVE attiva: per installare SiloOs su SSD:"
     echo "     Effettua il login (user: user / pass: live) e lancia:"
     echo "     -> sudo nas-os-install"
   fi
   echo "================================================================="
-  echo "   Benvenuto in SiloOS (Debian 13 Trixie) - Host: ${HOSTNAME_VAL}"
+  echo "   Benvenuto in SiloOs (Debian 13 Trixie) - Host: ${HOSTNAME_VAL}"
   if [ -d /run/live/medium ]; then
     echo ""
-    echo "   Modalita' LIVE attiva: per installare NAS-OS su SSD:"
+    echo "   Modalita' LIVE attiva: per installare SiloOs su SSD:"
     echo "     Effettua il login (user: user / pass: live) e lancia:"
     echo "     -> sudo nas-os-install"
   fi
@@ -56,7 +56,7 @@ generate_banner() {
   fi
   if [ -d /run/live/medium ]; then
     echo ""
-    echo "   Modalita' LIVE attiva: per installare NAS-OS su SSD:"
+    echo "   Modalita' LIVE attiva: per installare SiloOs su SSD:"
     echo "     Effettua il login (user: user / pass: live) e lancia:"
     echo "     -> sudo nas-os-install"
   fi

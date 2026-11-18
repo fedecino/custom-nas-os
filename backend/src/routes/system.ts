@@ -310,7 +310,7 @@ router.get('/info', async (_req: Request, res: Response) => {
 });
 
 const MANAGED_SYSTEM_SERVICES = [
-  { id: 'nas-os', label: 'NAS-OS Backend', description: 'API Server & Web UI backend (:3000)' },
+  { id: 'nas-os', label: 'SiloOs Backend', description: 'API Server & Web UI backend (:3000)' },
   { id: 'nginx', label: 'Nginx Web Server', description: 'Reverse Proxy Web UI (:80)' },
   { id: 'docker', label: 'Docker Engine', description: 'Container runtime' },
   { id: 'smbd', label: 'Samba (SMB/CIFS)', description: 'Condivisione file Windows/macOS' },
@@ -339,8 +339,8 @@ function describeListeningPort(
     return `Container Docker "${containerName}" esposto sulla porta ${port}`;
   }
   const byProcess: Record<string, string> = {
-    nginx: 'Web Server & Reverse Proxy NAS-OS (interfaccia grafica Web)',
-    node: 'NAS-OS Backend API Server (comunicazione interna con Nginx)',
+    nginx: 'Web Server & Reverse Proxy SiloOs (interfaccia grafica Web)',
+    node: 'SiloOs Backend API Server (comunicazione interna con Nginx)',
     sshd: 'OpenSSH Server — Accesso terminale remoto SSH e trasferimento file SFTP',
     smbd: 'Samba (SMB/CIFS) — Condivisione cartelle di rete per Windows, macOS e Linux',
     nmbd: 'Samba NetBIOS — Annuncio e risoluzione nomi di rete Windows',
@@ -359,13 +359,13 @@ function describeListeningPort(
     21: 'FTP — Trasferimento file',
     22: 'SSH / SFTP — Accesso terminale e trasferimento file cifrato',
     53: 'DNS — Risoluzione nomi di dominio',
-    80: 'HTTP — Interfaccia Web NAS-OS',
+    80: 'HTTP — Interfaccia Web SiloOs',
     111: 'RPCBind — Supporto NFS',
     139: 'SMB/NetBIOS — Condivisione file Windows',
     443: 'HTTPS — Traffico Web cifrato',
     445: 'SMB/CIFS — Condivisione file di rete',
     2049: 'NFS — Condivisione file Linux/Unix',
-    3000: 'API Server NAS-OS',
+    3000: 'API Server SiloOs',
     5353: 'mDNS — Rilevamento dispositivi in LAN',
   };
   return byPort[port] ?? `Servizio di sistema (${processName})`;

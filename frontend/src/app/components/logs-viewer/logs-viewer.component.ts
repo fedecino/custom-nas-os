@@ -25,7 +25,7 @@ import { ApiService } from '../../services/api.service';
           >
             <option value="all">Tutti i log</option>
             <option value="kernel">Kernel & Hardware / USB</option>
-            <option value="nas-os">NAS-OS Backend</option>
+            <option value="nas-os">SiloOs Backend</option>
             <option value="docker">Docker Engine</option>
             <option value="nginx">Nginx</option>
             <option value="smbd">Samba (SMB)</option>

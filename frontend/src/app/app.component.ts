@@ -28,6 +28,7 @@ import { FileManagerComponent } from './components/file-manager/file-manager.com
 import { LoginComponent } from './components/login/login.component';
 import { DialogHostComponent } from './components/dialog-host/dialog-host.component';
 import { DialogService } from './services/dialog.service';
+import { TerminalAppComponent } from './components/terminal-app/terminal-app.component';
 
 type ActiveWindow =
   | 'store'
@@ -39,6 +40,7 @@ type ActiveWindow =
   | 'ai'
   | 'services'
   | 'logs'
+  | 'terminal'
   | null;
 
 @Component({
@@ -59,6 +61,7 @@ type ActiveWindow =
     FileManagerComponent,
     LoginComponent,
     DialogHostComponent,
+    TerminalAppComponent,
   ],
   template: `
     @if (!authChecked()) {
@@ -592,6 +595,20 @@ type ActiveWindow =
                 <span class="mt-3 text-xs font-medium text-white">Log di Sistema</span>
               </button>
 
+              <!-- Core Web Terminal Tile -->
+              <button
+                type="button"
+                (click)="activeWindow.set('terminal')"
+                class="group flex flex-col items-center justify-center rounded-2xl border border-white/15 bg-white/[0.08] p-5 text-center shadow-lg backdrop-blur-xl transition hover:-translate-y-0.5 hover:border-sky-400/50 hover:bg-white/[0.14]"
+              >
+                <div
+                  class="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-slate-700 to-slate-900 text-2xl font-mono font-bold text-[#00ff88] shadow-lg transition group-hover:scale-105"
+                >
+                  &gt;_
+                </div>
+                <span class="mt-3 text-xs font-medium text-white">Terminale</span>
+              </button>
+
               <!-- Docker Installed Stacks -->
               @for (stack of filteredStacks(); track stack.name) {
                 <div
@@ -782,6 +799,9 @@ type ActiveWindow =
                 }
                 @case ('logs') {
                   <app-logs-viewer />
+                }
+                @case ('terminal') {
+                  <app-terminal-app />
                 }
               }
             </div>
@@ -976,6 +996,7 @@ export class AppComponent implements OnInit, OnDestroy {
       { id: 'settings', settingsCat: 'services', label: 'Servizi, Porte & Firewall', icon: '🔌' },
       { id: 'settings', settingsCat: 'users', label: 'Utenti & Permessi', icon: '👤' },
       { id: 'logs', label: 'Log di Sistema', icon: '📜' },
+      { id: 'terminal', label: 'Terminale Web', icon: '💻' },
       { id: 'ai', label: 'AI Agent', icon: '🤖' },
       { id: 'settings', settingsCat: 'desktop', label: 'Impostazioni', icon: '⚙️' },
     ];
@@ -1241,9 +1262,10 @@ getWindowTitle(win: Exclude<ActiveWindow, null>): string {
     shares: 'Condivisioni & Protocolli',
     users: 'Utenti & Permessi',
     settings: 'Impostazioni Sistema',
-    ai: 'NAS-OS AI Agent',
+    ai: 'SiloOs AI Agent',
     services: 'Servizi & Porte Attive',
     logs: 'Log di Sistema (journalctl)',
+    terminal: 'Terminale Web (Bash)',
   };
   return titles[win];
 }
