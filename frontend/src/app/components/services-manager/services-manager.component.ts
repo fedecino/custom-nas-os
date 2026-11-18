@@ -6,6 +6,7 @@ import {
   FirewallStatusResponse,
   ListeningPort,
   ManagedSystemService,
+  ProxyRoute,
 } from '../../services/api.service';
 
 @Component({
@@ -44,6 +45,103 @@ import {
           {{ feedback() }}
         </div>
       }
+
+      <!-- Reverse Proxy Nginx (Custom Container URLs) -->
+      <div class="rounded-2xl border border-white/10 bg-slate-900/60 p-5 space-y-4">
+        <div>
+          <h3 class="text-sm font-semibold text-white">
+            Reverse Proxy Nginx (Percorsi Personalizzati)
+          </h3>
+          <p class="mt-0.5 text-[11px] text-slate-400">
+            Reindirizza percorsi come <span class="font-mono text-[#38bdf8]">/{{ '{' }}nome{{ '}' }}</span> (es. <span class="font-mono text-[#38bdf8]">/jellyfin</span>) direttamente verso un container o servizio locale.
+          </p>
+        </div>
+
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-12">
+          <input
+            type="text"
+            [(ngModel)]="proxyPath"
+            placeholder="Percorso (es. /jellyfin)"
+            class="rounded-xl border border-white/10 bg-black/30 px-3 py-2 font-mono text-xs text-white focus:border-[#38bdf8] focus:outline-none sm:col-span-3"
+          />
+          <select
+            (change)="onContainerQuickPick($event)"
+            class="rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-xs text-slate-200 sm:col-span-4"
+          >
+            <option value="">Scegli da container attivi (opzionale)...</option>
+            @for (p of containerPorts(); track p.port) {
+              <option [value]="p.containerName + '|' + p.port">
+                🐳 {{ p.containerName }} (:{{ p.port }})
+              </option>
+            }
+          </select>
+          <input
+            type="text"
+            [(ngModel)]="proxyTarget"
+            placeholder="Target (es. http://127.0.0.1:8096)"
+            class="rounded-xl border border-white/10 bg-black/30 px-3 py-2 font-mono text-xs text-white focus:border-[#38bdf8] focus:outline-none sm:col-span-5"
+          />
+        </div>
+
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <label class="flex cursor-pointer items-center gap-2 text-xs text-slate-300">
+            <input type="checkbox" [(ngModel)]="proxyStripPrefix" class="accent-[#38bdf8]" />
+            <span>Rimuovi prefisso percorso (strip prefix — utile per app che non supportano subpath)</span>
+          </label>
+          <button
+            type="button"
+            (click)="addProxyRoute()"
+            [disabled]="!proxyPath.trim() || !proxyTarget.trim()"
+            class="rounded-xl bg-[#38bdf8] px-4 py-1.5 text-xs font-semibold text-[#090e1a] hover:brightness-110 disabled:opacity-50"
+          >
+            Aggiungi Rotta Nginx
+          </button>
+        </div>
+
+        @if (proxyRoutes().length > 0) {
+          <div class="overflow-x-auto rounded-xl border border-white/10 bg-black/25">
+            <table class="w-full text-left text-xs">
+              <thead class="border-b border-white/10 text-[10px] uppercase text-slate-400">
+                <tr>
+                  <th class="px-3 py-2">Percorso</th>
+                  <th class="px-3 py-2">Destinazione</th>
+                  <th class="px-3 py-2">Modalità</th>
+                  <th class="px-3 py-2 text-right">Azioni</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-white/5">
+                @for (r of proxyRoutes(); track r.slug) {
+                  <tr>
+                    <td class="px-3 py-2">
+                      <a
+                        [href]="r.path + '/'"
+                        target="_blank"
+                        rel="noopener"
+                        class="font-mono font-semibold text-[#38bdf8] hover:underline"
+                      >
+                        {{ r.path }} ↗
+                      </a>
+                    </td>
+                    <td class="px-3 py-2 font-mono text-slate-300">{{ r.target }}</td>
+                    <td class="px-3 py-2 text-[11px] text-slate-400">
+                      {{ r.stripPrefix ? 'Strip prefix' : 'Mantieni prefisso' }}
+                    </td>
+                    <td class="px-3 py-2 text-right">
+                      <button
+                        type="button"
+                        (click)="removeProxyRoute(r.slug)"
+                        class="rounded bg-rose-500/15 px-2 py-0.5 text-[10px] text-rose-300 hover:bg-rose-500/25"
+                      >
+                        Elimina
+                      </button>
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        }
+      </div>
 
       <!-- Firewall NAS (UFW) -->
       @if (firewall(); as fw) {
@@ -295,9 +393,14 @@ export class ServicesManagerComponent implements OnInit {
   ports = signal<ListeningPort[]>([]);
   services = signal<ManagedSystemService[]>([]);
   firewall = signal<FirewallStatusResponse | null>(null);
+  proxyRoutes = signal<ProxyRoute[]>([]);
   feedback = signal<string | null>(null);
   feedbackOk = signal(true);
   portFilter = '';
+
+  proxyPath = '';
+  proxyTarget = '';
+  proxyStripPrefix = false;
 
   fwPort = '';
   fwProtocol: 'tcp' | 'udp' | 'any' = 'tcp';
@@ -322,6 +425,65 @@ export class ServicesManagerComponent implements OnInit {
     this.api.getFirewallStatus().subscribe({
       next: (fw) => this.firewall.set(fw),
       error: () => {},
+    });
+
+    this.api.getProxyRoutes().subscribe({
+      next: (res) => this.proxyRoutes.set(res.routes),
+      error: () => {},
+    });
+  }
+
+  containerPorts(): ListeningPort[] {
+    return this.ports().filter((p) => Boolean(p.containerName));
+  }
+
+  onContainerQuickPick(event: Event): void {
+    const val = (event.target as HTMLSelectElement).value;
+    if (!val) return;
+    const [name, port] = val.split('|');
+    if (name && port) {
+      this.proxyPath = `/${name.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
+      this.proxyTarget = `http://127.0.0.1:${port}`;
+    }
+  }
+
+  addProxyRoute(): void {
+    this.api
+      .saveProxyRoute({
+        path: this.proxyPath,
+        target: this.proxyTarget,
+        stripPrefix: this.proxyStripPrefix,
+      })
+      .subscribe({
+        next: (res) => {
+          this.proxyRoutes.set(res.routes);
+          this.feedbackOk.set(true);
+          this.feedback.set(
+            res.warnings?.length
+              ? `Rotta salvata (${res.warnings[0]})`
+              : `Rotta Nginx ${this.proxyPath} attivata!`
+          );
+          this.proxyPath = '';
+          this.proxyTarget = '';
+        },
+        error: (err) => {
+          this.feedbackOk.set(false);
+          this.feedback.set(err?.error?.error ?? 'Errore salvataggio rotta Nginx');
+        },
+      });
+  }
+
+  removeProxyRoute(slug: string): void {
+    this.api.deleteProxyRoute(slug).subscribe({
+      next: (res) => {
+        this.proxyRoutes.set(res.routes);
+        this.feedbackOk.set(true);
+        this.feedback.set(`Rotta /${slug} rimossa`);
+      },
+      error: (err) => {
+        this.feedbackOk.set(false);
+        this.feedback.set(err?.error?.error ?? 'Errore rimozione rotta Nginx');
+      },
     });
   }
 

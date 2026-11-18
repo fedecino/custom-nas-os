@@ -211,6 +211,13 @@ export interface SystemUpdateStatus {
   updateAvailable: boolean;
 }
 
+export interface ProxyRoute {
+  slug: string;
+  path: string;
+  target: string;
+  stripPrefix: boolean;
+}
+
 export interface AiChatMessage {
   role: 'user' | 'assistant';
   content: string;
@@ -912,5 +919,27 @@ export class ApiService {
       throw new Error(`Upload sfondo login fallito (HTTP ${res.status})`);
     }
     return res.json();
+  }
+
+  getProxyRoutes(): Observable<{ routes: ProxyRoute[] }> {
+    return this.http.get<{ routes: ProxyRoute[] }>('/api/settings/proxy-routes');
+  }
+
+  saveProxyRoute(payload: {
+    path: string;
+    target: string;
+    stripPrefix: boolean;
+  }): Observable<{ success: boolean; routes: ProxyRoute[]; warnings?: string[] }> {
+    return this.http.post<{
+      success: boolean;
+      routes: ProxyRoute[];
+      warnings?: string[];
+    }>('/api/settings/proxy-routes', payload);
+  }
+
+  deleteProxyRoute(slug: string): Observable<{ success: boolean; routes: ProxyRoute[] }> {
+    return this.http.delete<{ success: boolean; routes: ProxyRoute[] }>(
+      `/api/settings/proxy-routes/${encodeURIComponent(slug)}`
+    );
   }
 }

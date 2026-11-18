@@ -531,4 +531,136 @@ router.get('/login-wallpaper/image', async (_req: Request, res: Response) => {
   }
 });
 
+export interface ProxyRoute {
+  slug: string;
+  path: string;
+  target: string;
+  stripPrefix: boolean;
+}
+
+const PROXY_ROUTES_FILE = path.join(DATA_DIR, '.nas-os', 'proxy-routes.json');
+const NGINX_ROUTES_DIR = '/etc/nginx/conf.d/siloos-routes';
+const NGINX_ROUTES_CONF = path.join(NGINX_ROUTES_DIR, 'routes.conf');
+const NGINX_SITE_CONF = '/etc/nginx/sites-available/nas-os.conf';
+
+async function readProxyRoutes(): Promise<ProxyRoute[]> {
+  try {
+    const raw = await fs.readFile(PROXY_ROUTES_FILE, 'utf-8');
+    const parsed = JSON.parse(raw) as ProxyRoute[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+async function applyNginxProxyRoutes(routes: ProxyRoute[]): Promise<string[]> {
+  const warnings: string[] = [];
+  const blocks = routes
+    .map((r) => {
+      const slug = r.slug;
+      const target = r.target.replace(/\/+$/, '');
+      const rewriteLine = r.stripPrefix
+        ? `        rewrite ^/${slug}(/.*)$ $1 break;\n`
+        : '';
+      return [
+        `location = /${slug} { return 301 /${slug}/; }`,
+        `location /${slug}/ {`,
+        rewriteLine + `        proxy_pass ${target}${r.stripPrefix ? '' : '/' + slug + '/'};`,
+        `        proxy_http_version 1.1;`,
+        `        proxy_set_header Host $host;`,
+        `        proxy_set_header X-Real-IP $remote_addr;`,
+        `        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`,
+        `        proxy_set_header X-Forwarded-Proto $scheme;`,
+        `        proxy_set_header Upgrade $http_upgrade;`,
+        `        proxy_set_header Connection "upgrade";`,
+        `}`,
+      ].join('\n');
+    })
+    .join('\n\n');
+
+  try {
+    await fs.mkdir(NGINX_ROUTES_DIR, { recursive: true });
+    await fs.writeFile(NGINX_ROUTES_CONF, `# Managed by SiloOs\n${blocks}\n`, 'utf-8');
+
+    // Ensure main site config includes siloos-routes
+    const siteConf = await fs.readFile(NGINX_SITE_CONF, 'utf-8').catch(() => '');
+    if (siteConf && !siteConf.includes('siloos-routes')) {
+      const updated = siteConf.replace(
+        'location / {',
+        'include /etc/nginx/conf.d/siloos-routes/*.conf;\n\n    location / {'
+      );
+      await fs.writeFile(NGINX_SITE_CONF, updated, 'utf-8');
+    }
+
+    await execFileAsync('nginx', ['-t'], { timeout: 5000 });
+    await execFileAsync('systemctl', ['reload', 'nginx'], { timeout: 5000 });
+  } catch (err) {
+    warnings.push(
+      `Configurazione salvata in ${PROXY_ROUTES_FILE}, reload Nginx non eseguito: ${
+        err instanceof Error ? err.message : String(err)
+      }`
+    );
+  }
+  return warnings;
+}
+
+router.get('/proxy-routes', async (_req: Request, res: Response) => {
+  const routes = await readProxyRoutes();
+  res.json({ routes });
+});
+
+router.post('/proxy-routes', async (req: Request, res: Response) => {
+  const { path: rawPath, target, stripPrefix } = req.body as {
+    path?: string;
+    target?: string;
+    stripPrefix?: boolean;
+  };
+
+  const slug = String(rawPath ?? '')
+    .trim()
+    .replace(/^\/+|\/+$/g, '');
+  if (!/^[a-zA-Z0-9_-]{1,32}$/.test(slug) || slug === 'api') {
+    res.status(400).json({
+      error: 'Percorso non valido (usa es. /jellyfin; /api è riservato)',
+    });
+    return;
+  }
+
+  const cleanTarget = String(target ?? '').trim();
+  if (!/^https?:\/\/[a-zA-Z0-9.:_-]+$/.test(cleanTarget)) {
+    res.status(400).json({
+      error: 'Target URL non valido (es. http://127.0.0.1:8096)',
+    });
+    return;
+  }
+
+  const routes = await readProxyRoutes();
+  const nextRoute: ProxyRoute = {
+    slug,
+    path: `/${slug}`,
+    target: cleanTarget,
+    stripPrefix: Boolean(stripPrefix),
+  };
+
+  const idx = routes.findIndex((r) => r.slug === slug);
+  if (idx >= 0) routes[idx] = nextRoute;
+  else routes.push(nextRoute);
+
+  await fs.mkdir(path.dirname(PROXY_ROUTES_FILE), { recursive: true });
+  await fs.writeFile(PROXY_ROUTES_FILE, JSON.stringify(routes, null, 2), 'utf-8');
+
+  const warnings = await applyNginxProxyRoutes(routes);
+  res.json({ success: true, routes, warnings });
+});
+
+router.delete('/proxy-routes/:slug', async (req: Request, res: Response) => {
+  const slug = String(req.params.slug ?? '').trim();
+  const routes = (await readProxyRoutes()).filter((r) => r.slug !== slug);
+  await fs.mkdir(path.dirname(PROXY_ROUTES_FILE), { recursive: true });
+  await fs.writeFile(PROXY_ROUTES_FILE, JSON.stringify(routes, null, 2), 'utf-8');
+
+  const warnings = await applyNginxProxyRoutes(routes);
+  res.json({ success: true, routes, warnings });
+});
+
 export default router;
