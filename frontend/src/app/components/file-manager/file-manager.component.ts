@@ -216,6 +216,14 @@ interface ContextMenuState {
                 <span>📂</span>
                 <span>Apri cartella</span>
               </button>
+              <button
+                type="button"
+                (click)="openShareModal(item); closeContextMenu()"
+                class="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-[#38bdf8] hover:bg-white/10"
+              >
+                <span>🔗</span>
+                <span>Condividi cartella...</span>
+              </button>
             } @else {
               <button
                 type="button"
@@ -280,6 +288,128 @@ interface ContextMenuState {
           }
         </div>
       }
+
+      <!-- Share Folder Dialog -->
+      @if (shareModalPath(); as targetPath) {
+        <div
+          class="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm"
+        >
+          <div
+            class="w-full max-w-lg rounded-3xl border border-[#1e293b] bg-[#0f172a] p-6 shadow-2xl space-y-4"
+          >
+            <div class="flex items-center justify-between">
+              <div>
+                <h3 class="text-base font-semibold text-white">
+                  Condividi Cartella in Rete
+                </h3>
+                <p class="mt-0.5 font-mono text-[11px] text-[#38bdf8]">
+                  {{ targetPath }}
+                </p>
+              </div>
+              <button
+                type="button"
+                (click)="shareModalPath.set(null)"
+                class="rounded-lg p-1.5 text-slate-400 hover:bg-white/10 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div>
+                <label class="block text-xs font-medium text-slate-300">
+                  Nome Condivisione
+                </label>
+                <input
+                  type="text"
+                  [(ngModel)]="shareForm.name"
+                  class="mt-1 w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-xs text-white focus:border-[#38bdf8] focus:outline-none"
+                />
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-slate-300">
+                  Client NFS (es. * o 192.168.1.0/24)
+                </label>
+                <input
+                  type="text"
+                  [(ngModel)]="shareForm.nfsClients"
+                  class="mt-1 w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2 font-mono text-xs text-white focus:border-[#38bdf8] focus:outline-none"
+                />
+              </div>
+            </div>
+
+            <div class="flex flex-wrap gap-4 text-xs text-slate-200">
+              <label class="flex cursor-pointer items-center gap-2">
+                <input type="checkbox" [(ngModel)]="shareForm.smb" class="accent-[#38bdf8]" />
+                <span>SMB / Samba</span>
+              </label>
+              <label class="flex cursor-pointer items-center gap-2">
+                <input type="checkbox" [(ngModel)]="shareForm.nfs" class="accent-[#38bdf8]" />
+                <span>NFS</span>
+              </label>
+              <label class="flex cursor-pointer items-center gap-2">
+                <input type="checkbox" [(ngModel)]="shareForm.ftp" class="accent-[#38bdf8]" />
+                <span>FTP</span>
+              </label>
+              <label class="flex cursor-pointer items-center gap-2">
+                <input type="checkbox" [(ngModel)]="shareForm.readOnly" class="accent-[#38bdf8]" />
+                <span>Sola lettura</span>
+              </label>
+              <label class="flex cursor-pointer items-center gap-2">
+                <input type="checkbox" [(ngModel)]="shareForm.guestOk" class="accent-[#38bdf8]" />
+                <span>Guest OK</span>
+              </label>
+            </div>
+
+            <!-- Connection Paths Preview -->
+            <div class="rounded-2xl border border-white/10 bg-black/35 p-3.5 text-[11px] space-y-1.5 font-mono">
+              <div class="text-[10px] font-sans font-semibold uppercase tracking-wider text-slate-400">
+                Come collegarti da altri dispositivi:
+              </div>
+              @if (shareForm.smb) {
+                <div class="text-slate-200">
+                  <span class="text-[#38bdf8]">SMB:</span> \\{{ currentHost() }}\{{ shareForm.name || '...' }}
+                </div>
+              }
+              @if (shareForm.nfs) {
+                <div class="text-slate-200">
+                  <span class="text-indigo-300">NFS:</span> {{ currentHost() }}:{{ targetPath }}
+                </div>
+              }
+              <div class="text-slate-200">
+                <span class="text-[#00ff88]">SFTP:</span> sftp://{{ currentHost() }}{{ targetPath }}
+              </div>
+              @if (shareForm.ftp) {
+                <div class="text-slate-200">
+                  <span class="text-amber-300">FTP:</span> ftp://{{ currentHost() }}{{ targetPath }}
+                </div>
+              }
+            </div>
+
+            @if (shareModalError()) {
+              <div class="text-xs text-rose-300">{{ shareModalError() }}</div>
+            }
+
+            <div class="flex justify-end gap-2">
+              <button
+                type="button"
+                (click)="shareModalPath.set(null)"
+                class="rounded-xl border border-white/10 px-4 py-2 text-xs text-slate-300 hover:bg-white/5"
+              >
+                Annulla
+              </button>
+              <button
+                type="button"
+                (click)="saveFolderShare()"
+                [disabled]="!shareForm.name.trim()"
+                class="rounded-xl bg-[#00ff88] px-4 py-2 text-xs font-semibold text-[#090e1a] hover:brightness-110 disabled:opacity-50"
+              >
+                Attiva Condivisione
+              </button>
+            </div>
+          </div>
+        </div>
+      }
     </div>
   `,
 })
@@ -298,6 +428,17 @@ export class FileManagerComponent implements OnInit {
   dragActive = signal(false);
   uploadStatus = signal<{ filename: string; percent: number } | null>(null);
   contextMenu = signal<ContextMenuState | null>(null);
+  shareModalPath = signal<string | null>(null);
+  shareModalError = signal<string | null>(null);
+  shareForm = {
+    name: '',
+    smb: true,
+    nfs: false,
+    ftp: false,
+    readOnly: false,
+    guestOk: false,
+    nfsClients: '*',
+  };
 
   @HostListener('document:click')
   @HostListener('document:keydown.escape')
@@ -444,6 +585,56 @@ export class FileManagerComponent implements OnInit {
       `/api/files/download?path=${encodeURIComponent(item.path)}`,
       '_blank'
     );
+  }
+
+  currentHost(): string {
+    return window.location.hostname || 'siloos.local';
+  }
+
+  openShareModal(item: FileEntry): void {
+    const cleanName =
+      item.name.replace(/[^a-zA-Z0-9_-]/g, '_').replace(/^[^a-zA-Z0-9]+/, '') || 'Share';
+    this.shareForm = {
+      name: cleanName.slice(0, 32),
+      smb: true,
+      nfs: false,
+      ftp: false,
+      readOnly: false,
+      guestOk: false,
+      nfsClients: '*',
+    };
+    this.shareModalError.set(null);
+    this.shareModalPath.set(item.path);
+  }
+
+  saveFolderShare(): void {
+    const targetPath = this.shareModalPath();
+    if (!targetPath) return;
+    this.shareModalError.set(null);
+    this.api
+      .saveShare({
+        name: this.shareForm.name.trim(),
+        path: targetPath,
+        smb: this.shareForm.smb,
+        nfs: this.shareForm.nfs,
+        ftp: this.shareForm.ftp,
+        readOnly: this.shareForm.readOnly,
+        guestOk: this.shareForm.guestOk,
+        nfsClients: this.shareForm.nfsClients,
+      })
+      .subscribe({
+        next: () => {
+          const name = this.shareForm.name.trim();
+          this.shareModalPath.set(null);
+          this.feedbackOk.set(true);
+          this.feedback.set(`Cartella "${name}" condivisa con successo!`);
+        },
+        error: (err) => {
+          this.shareModalError.set(
+            err?.error?.error ?? 'Errore durante la creazione della condivisione'
+          );
+        },
+      });
   }
 
   onDragOver(event: DragEvent): void {

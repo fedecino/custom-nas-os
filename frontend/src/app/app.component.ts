@@ -17,7 +17,10 @@ import { ComposeEditorComponent } from './components/compose-editor/compose-edit
 import { StorageManagerComponent } from './components/storage-manager/storage-manager.component';
 import { SharesManagerComponent } from './components/shares-manager/shares-manager.component';
 import { UsersManagerComponent } from './components/users-manager/users-manager.component';
-import { SettingsAppComponent } from './components/settings-app/settings-app.component';
+import {
+  SettingsAppComponent,
+  SettingsCategory,
+} from './components/settings-app/settings-app.component';
 import { AiAssistantComponent } from './components/ai-assistant/ai-assistant.component';
 import { ServicesManagerComponent } from './components/services-manager/services-manager.component';
 import { LogsViewerComponent } from './components/logs-viewer/logs-viewer.component';
@@ -113,7 +116,7 @@ type ActiveWindow =
               @for (item of menuItems; track item.id) {
                 <button
                   type="button"
-                  (click)="activeWindow.set(item.id); menuOpen.set(false)"
+                  (click)="openMenuItem(item)"
                   class="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-xs text-slate-200 transition hover:bg-white/10"
                 >
                   <span class="text-sm">{{ item.icon }}</span>
@@ -380,7 +383,7 @@ type ActiveWindow =
 
           <!-- Storage Card (CasaOS Style) -->
           <div
-            (click)="activeWindow.set('storage')"
+            (click)="openSettings('storage')"
             class="cursor-pointer rounded-2xl border border-white/15 bg-white/[0.08] p-5 shadow-xl backdrop-blur-xl transition hover:border-sky-400/50"
           >
             <div class="flex items-center justify-between">
@@ -430,7 +433,7 @@ type ActiveWindow =
           <!-- Quick Settings / Shares Link -->
           <button
             type="button"
-            (click)="activeWindow.set('shares')"
+            (click)="openSettings('shares')"
             class="flex w-full items-center justify-between rounded-2xl border border-white/15 bg-white/[0.08] px-5 py-3.5 text-left text-xs font-medium text-white shadow-xl backdrop-blur-xl transition hover:border-sky-400/50"
           >
             <span>Condivisioni SMB / NFS / FTP</span>
@@ -473,14 +476,14 @@ type ActiveWindow =
                 <div class="mt-3 flex gap-2">
                   <button
                     type="button"
-                    (click)="activeWindow.set('shares')"
+                    (click)="openSettings('shares')"
                     class="rounded-full bg-sky-500 px-3.5 py-1 text-[11px] font-semibold text-white hover:bg-sky-400"
                   >
                     Condivisioni
                   </button>
                   <button
                     type="button"
-                    (click)="activeWindow.set('storage')"
+                    (click)="openSettings('storage')"
                     class="rounded-full bg-white/15 px-3.5 py-1 text-[11px] font-medium text-white hover:bg-white/25"
                   >
                     Dischi
@@ -510,7 +513,7 @@ type ActiveWindow =
                   </button>
                   <button
                     type="button"
-                    (click)="activeWindow.set('settings')"
+                    (click)="openSettings('ai')"
                     class="rounded-full bg-white/15 px-3.5 py-1 text-[11px] font-medium text-white hover:bg-white/25"
                   >
                     API Key
@@ -556,20 +559,6 @@ type ActiveWindow =
                   📁
                 </div>
                 <span class="mt-3 text-xs font-medium text-white">Files</span>
-              </button>
-
-              <!-- Core Storage Tile -->
-              <button
-                type="button"
-                (click)="activeWindow.set('storage')"
-                class="group flex flex-col items-center justify-center rounded-2xl border border-white/15 bg-white/[0.08] p-5 text-center shadow-lg backdrop-blur-xl transition hover:-translate-y-0.5 hover:border-sky-400/50 hover:bg-white/[0.14]"
-              >
-                <div
-                  class="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-400 to-indigo-600 text-2xl shadow-lg transition group-hover:scale-105"
-                >
-                  🗂️
-                </div>
-                <span class="mt-3 text-xs font-medium text-white">Storage & Files</span>
               </button>
 
               <!-- Core Services & Ports Tile -->
@@ -773,12 +762,15 @@ type ActiveWindow =
                   <app-users-manager />
                 }
                 @case ('settings') {
-                  <app-settings-app (updated)="onSettingsUpdated($event)" />
+                  <app-settings-app
+                    [initialCategory]="settingsCategory()"
+                    (updated)="onSettingsUpdated($event)"
+                  />
                 }
                 @case ('ai') {
                   <app-ai-assistant
                     [aiEnabled]="uiSettings().ai.enabled"
-                    (openSettings)="activeWindow.set('settings')"
+                    (openSettings)="openSettings('ai')"
                     (actionExecuted)="refreshAll()"
                   />
                 }
@@ -963,389 +955,412 @@ export class AppComponent implements OnInit, OnDestroy {
   activeToasts = signal<SystemNotification[]>([]);
   notificationsOpen = signal(false);
   menuOpen = signal(false);
+  settingsCategory = signal<SettingsCategory>('desktop');
   ramModalOpen = signal(false);
 
-  menuItems: Array<{ id: Exclude<ActiveWindow, null>; label: string; icon: string }> = [
-    { id: 'store', label: 'App Store', icon: '🛍️' },
-    { id: 'files', label: 'Files (File Manager)', icon: '📁' },
-    { id: 'storage', label: 'Storage & Dischi', icon: '🖴' },
-    { id: 'shares', label: 'Condivisioni (SMB/NFS/FTP)', icon: '🔗' },
-    { id: 'services', label: 'Servizi, Porte & Firewall', icon: '🔌' },
-    { id: 'users', label: 'Utenti & Permessi', icon: '👤' },
-    { id: 'logs', label: 'Log di Sistema', icon: '📜' },
-    { id: 'ai', label: 'AI Agent', icon: '🤖' },
-    { id: 'settings', label: 'Impostazioni', icon: '⚙️' },
-  ];
-  ramProcesses = signal<ProcessMemoryInfo[]>([]);
-  appVersion = signal('1.0.0');
-  desktopSearch = '';
+    menuItems: Array<{
+      id: Exclude<ActiveWindow, null>;
+      settingsCat?: SettingsCategory;
+      label: string;
+      icon: string;
+    }> = [
+      { id: 'store', label: 'App Store', icon: '🛍️' },
+      { id: 'files', label: 'Files (File Manager)', icon: '📁' },
+      { id: 'settings', settingsCat: 'storage', label: 'Dischi & Storage', icon: '🖴' },
+      { id: 'settings', settingsCat: 'shares', label: 'Condivisioni (SMB/NFS/FTP)', icon: '🔗' },
+      { id: 'settings', settingsCat: 'services', label: 'Servizi, Porte & Firewall', icon: '🔌' },
+      { id: 'settings', settingsCat: 'users', label: 'Utenti & Permessi', icon: '👤' },
+      { id: 'logs', label: 'Log di Sistema', icon: '📜' },
+      { id: 'ai', label: 'AI Agent', icon: '🤖' },
+      { id: 'settings', settingsCat: 'desktop', label: 'Impostazioni', icon: '⚙️' },
+    ];
+    ramProcesses = signal<ProcessMemoryInfo[]>([]);
+    appVersion = signal('1.0.0');
+    desktopSearch = '';
 
-  uiSettings = signal<NasSettingsResponse['settings']>({
-    nasName: 'SiloOS',
-    wallpaper: 'silo-landscape',
-    ai: {
-      enabled: false,
-      providerType: 'ollama',
-      baseUrl: 'http://localhost:11434/v1',
-      model: 'llama3.2',
-    },
-  });
-
-  clock = signal('');
-  dateLabel = signal('');
-
-  editorState = signal<{
-    inspected: InspectedImage | null;
-    stackName: string;
-    initialYaml: string;
-    lockStackName: boolean;
-  } | null>(null);
-
-  logsStack = signal<string | null>(null);
-  liveLogLines = signal<string[]>([]);
-  private logsEventSource?: EventSource;
-  private systemEventsSource?: EventSource;
-  private telemetryTimer?: ReturnType<typeof setInterval>;
-  private refreshTimer?: ReturnType<typeof setInterval>;
-  private clockTimer?: ReturnType<typeof setInterval>;
-
-  ngOnInit(): void {
-    this.updateClock();
-    this.clockTimer = setInterval(() => this.updateClock(), 1000);
-    this.api.getAuthStatus().subscribe({
-      next: (res) => {
-        this.authChecked.set(true);
-        if (res.authenticated) {
-          this.authenticated.set(true);
-          this.currentUser.set(res.username);
-          this.startAuthenticatedSession();
-        }
-      },
-      error: () => {
-        this.authChecked.set(true);
+    uiSettings = signal<NasSettingsResponse['settings']>({
+      nasName: 'SiloOS',
+      wallpaper: 'silo-landscape',
+      ai: {
+        enabled: false,
+        providerType: 'ollama',
+        baseUrl: 'http://localhost:11434/v1',
+        model: 'llama3.2',
       },
     });
-  }
+
+    clock = signal('');
+    dateLabel = signal('');
+
+    editorState = signal<{
+      inspected: InspectedImage | null;
+      stackName: string;
+      initialYaml: string;
+      lockStackName: boolean;
+    } | null>(null);
+
+    logsStack = signal<string | null>(null);
+    liveLogLines = signal<string[]>([]);
+    private logsEventSource ?: EventSource;
+    private systemEventsSource ?: EventSource;
+    private telemetryTimer ?: ReturnType<typeof setInterval>;
+    private refreshTimer ?: ReturnType<typeof setInterval>;
+    private clockTimer ?: ReturnType<typeof setInterval>;
+
+    ngOnInit(): void {
+      this.updateClock();
+      this.clockTimer = setInterval(() => this.updateClock(), 1000);
+      this.api.getAuthStatus().subscribe({
+        next: (res) => {
+          this.authChecked.set(true);
+          if (res.authenticated) {
+            this.authenticated.set(true);
+            this.currentUser.set(res.username);
+            this.startAuthenticatedSession();
+          }
+        },
+        error: () => {
+          this.authChecked.set(true);
+        },
+      });
+    }
 
   onLoggedIn(username: string): void {
-    this.authenticated.set(true);
-    this.currentUser.set(username);
-    this.startAuthenticatedSession();
-  }
+      this.authenticated.set(true);
+      this.currentUser.set(username);
+      this.startAuthenticatedSession();
+    }
 
   logout(): void {
-    this.api.logout().subscribe({
-      next: () => {
-        this.authenticated.set(false);
-        this.currentUser.set(null);
-        this.activeWindow.set(null);
-        this.systemEventsSource?.close();
-        if (this.telemetryTimer) clearInterval(this.telemetryTimer);
-        if (this.refreshTimer) clearInterval(this.refreshTimer);
-      },
-    });
-  }
+      this.api.logout().subscribe({
+        next: () => {
+          this.authenticated.set(false);
+          this.currentUser.set(null);
+          this.activeWindow.set(null);
+          this.systemEventsSource?.close();
+          if (this.telemetryTimer) clearInterval(this.telemetryTimer);
+          if (this.refreshTimer) clearInterval(this.refreshTimer);
+        },
+      });
+    }
 
   private startAuthenticatedSession(): void {
-    this.refreshTelemetry();
-    this.refreshAll();
-    if (this.telemetryTimer) clearInterval(this.telemetryTimer);
-    if (this.refreshTimer) clearInterval(this.refreshTimer);
-    this.telemetryTimer = setInterval(() => this.refreshTelemetry(), 2000);
-    this.refreshTimer = setInterval(() => this.refreshAll(), 6000);
+      this.refreshTelemetry();
+      this.refreshAll();
+      if(this.telemetryTimer) clearInterval(this.telemetryTimer);
+      if(this.refreshTimer) clearInterval(this.refreshTimer);
+      this.telemetryTimer = setInterval(() => this.refreshTelemetry(), 2000);
+      this.refreshTimer = setInterval(() => this.refreshAll(), 6000);
 
-    this.api.getSettings().subscribe({
-      next: (res) => {
-        this.uiSettings.set(res.settings);
-        if (res.version) this.appVersion.set(res.version);
-        document.title = `${res.settings.nasName} v${res.version || this.appVersion()}`;
-      },
-      error: () => {},
-    });
+      this.api.getSettings().subscribe({
+        next: (res) => {
+          this.uiSettings.set(res.settings);
+          if (res.version) this.appVersion.set(res.version);
+          document.title = `${res.settings.nasName} v${res.version || this.appVersion()}`;
+        },
+        error: () => { },
+      });
 
-    this.systemEventsSource?.close();
-    this.systemEventsSource = this.api.streamSystemEvents(
-      (evt) => {
-        this.notifications.update((list) => [evt, ...list].slice(0, 30));
-        this.activeToasts.update((list) => [evt, ...list].slice(0, 4));
-        setTimeout(() => this.dismissToast(evt.id), 6000);
-      },
-      (history) => {
-        this.notifications.set(history);
-      }
-    );
-  }
+      this.systemEventsSource?.close();
+      this.systemEventsSource = this.api.streamSystemEvents(
+        (evt) => {
+          this.notifications.update((list) => [evt, ...list].slice(0, 30));
+          this.activeToasts.update((list) => [evt, ...list].slice(0, 4));
+          setTimeout(() => this.dismissToast(evt.id), 6000);
+        },
+        (history) => {
+          this.notifications.set(history);
+        }
+      );
+    }
 
-  onSettingsUpdated(settings: NasSettingsResponse['settings']): void {
-    this.uiSettings.set(settings);
-    if (settings.wallpaper === 'custom') {
-      this.wallpaperVersion.set(Date.now());
+  openSettings(cat: SettingsCategory): void {
+      this.settingsCategory.set(cat);
+      this.activeWindow.set('settings');
+    }
+
+  openMenuItem(item: {
+      id: Exclude<ActiveWindow, null>;
+      settingsCat?: SettingsCategory;
+    }): void {
+      this.menuOpen.set(false);
+      if(item.settingsCat) {
+      this.openSettings(item.settingsCat);
+    } else {
+      this.activeWindow.set(item.id);
     }
   }
 
-  ngOnDestroy(): void {
-    this.logsEventSource?.close();
-    this.systemEventsSource?.close();
-    if (this.telemetryTimer) clearInterval(this.telemetryTimer);
-    if (this.refreshTimer) clearInterval(this.refreshTimer);
-    if (this.clockTimer) clearInterval(this.clockTimer);
+onSettingsUpdated(settings: NasSettingsResponse['settings']): void {
+  this.uiSettings.set(settings);
+  if(settings.wallpaper === 'custom') {
+  this.wallpaperVersion.set(Date.now());
+}
   }
 
-  dismissToast(id: string): void {
-    this.activeToasts.update((list) => list.filter((t) => t.id !== id));
-  }
+ngOnDestroy(): void {
+  this.logsEventSource?.close();
+  this.systemEventsSource?.close();
+  if(this.telemetryTimer) clearInterval(this.telemetryTimer);
+  if(this.refreshTimer) clearInterval(this.refreshTimer);
+  if(this.clockTimer) clearInterval(this.clockTimer);
+}
 
-  openRamProcessesModal(): void {
-    this.ramModalOpen.set(true);
-    this.loadRamProcesses();
-  }
+dismissToast(id: string): void {
+  this.activeToasts.update((list) => list.filter((t) => t.id !== id));
+}
 
-  loadRamProcesses(): void {
-    this.api.getTopMemoryProcesses().subscribe({
-      next: (res) => this.ramProcesses.set(res.processes),
-      error: () => {},
-    });
-  }
+openRamProcessesModal(): void {
+  this.ramModalOpen.set(true);
+  this.loadRamProcesses();
+}
+
+loadRamProcesses(): void {
+  this.api.getTopMemoryProcesses().subscribe({
+    next: (res) => this.ramProcesses.set(res.processes),
+    error: () => { },
+  });
+}
 
   private updateClock(): void {
-    const now = new Date();
-    this.clock.set(
-      now.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })
-    );
-    this.dateLabel.set(
-      now.toLocaleDateString('it-IT', {
-        weekday: 'long',
-        month: 'long',
-        day: 'numeric',
-      })
-    );
+  const now = new Date();
+  this.clock.set(
+    now.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })
+  );
+  this.dateLabel.set(
+    now.toLocaleDateString('it-IT', {
+      weekday: 'long',
+      month: 'long',
+      day: 'numeric',
+    })
+  );
+}
+
+refreshTelemetry(): void {
+  this.api.getSystemInfo().subscribe({
+    next: (info) => {
+      this.backendError.set(null);
+      this.systemInfo.set(info);
+    },
+    error: (err) => {
+      const msg =
+        err?.status === 502 || err?.status === 504 || err?.status === 0
+          ? `Backend non attivo sulla porta 3000 (HTTP ${err.status}).`
+          : `Errore API sistema (HTTP ${err?.status || '?'})`;
+      this.backendError.set(msg);
+    },
+  });
+}
+
+refreshAll(): void {
+  this.api.getStacks().subscribe({
+    next: (res) => {
+      this.stacks.set(res.stacks);
+      this.standaloneContainers.set(res.standaloneContainers);
+    },
+    error: () => { },
+  });
+  this.api.getShares().subscribe({
+    next: (res) => this.sharesData.set(res),
+    error: () => { },
+  });
+}
+
+ringOffset(percent: number): number {
+  const circumference = 2 * Math.PI * 15; // ~94.25
+  const clamped = Math.min(100, Math.max(0, percent));
+  return circumference - (clamped / 100) * circumference;
+}
+
+primaryDisk() {
+  const disks = this.systemInfo()?.disks ?? [];
+  return (
+    disks.find((d) => d.mountpoint === '/DATA') ??
+    disks.find((d) => d.mountpoint === '/') ??
+    disks[0] ??
+    null
+  );
+}
+
+filteredStacks(): StackInfo[] {
+  const q = this.desktopSearch.trim().toLowerCase();
+  if (!q) return this.stacks();
+  return this.stacks().filter((s) => s.name.toLowerCase().includes(q));
+}
+
+onSearchSubmit(): void {
+  if(this.desktopSearch.trim() && this.filteredStacks().length === 0) {
+  this.activeWindow.set('store');
+}
   }
 
-  refreshTelemetry(): void {
-    this.api.getSystemInfo().subscribe({
-      next: (info) => {
-        this.backendError.set(null);
-        this.systemInfo.set(info);
-      },
-      error: (err) => {
-        const msg =
-          err?.status === 502 || err?.status === 504 || err?.status === 0
-            ? `Backend non attivo sulla porta 3000 (HTTP ${err.status}).`
-            : `Errore API sistema (HTTP ${err?.status || '?'})`;
-        this.backendError.set(msg);
-      },
-    });
+toggleStackMenu(name: string): void {
+  this.openMenuStack.set(this.openMenuStack() === name ? null : name);
+}
+
+wallpaperClass(): string {
+  switch (this.uiSettings().wallpaper) {
+    case 'midnight':
+      return 'bg-gradient-to-br from-slate-950 via-purple-950/85 to-slate-900';
+    case 'ocean':
+      return 'bg-gradient-to-br from-[#071929] via-[#0c3554] to-[#0a2538]';
+    case 'carbon':
+      return 'bg-gradient-to-br from-zinc-950 via-neutral-900 to-zinc-900';
+    case 'aurora':
+      return 'bg-gradient-to-br from-[#092138] via-[#123d5e] to-[#0b263d]';
+    default:
+      return 'bg-[#090e1a]';
+  }
+}
+
+wallpaperStyle(): Record < string, string > {
+  const wp = this.uiSettings().wallpaper;
+  if(wp === 'custom') {
+  return {
+    'background-image': `url('/api/settings/wallpaper/image?v=${this.wallpaperVersion()}')`,
+  };
+}
+if (wp === 'silo-landscape') {
+  return {
+    'background-image': "url('/silo-wallpaper.svg')",
+  };
+}
+return {};
   }
 
-  refreshAll(): void {
-    this.api.getStacks().subscribe({
-      next: (res) => {
-        this.stacks.set(res.stacks);
-        this.standaloneContainers.set(res.standaloneContainers);
-      },
-      error: () => {},
-    });
-    this.api.getShares().subscribe({
-      next: (res) => this.sharesData.set(res),
-      error: () => {},
-    });
-  }
+getWindowTitle(win: Exclude<ActiveWindow, null>): string {
+  const titles: Record<Exclude<ActiveWindow, null>, string> = {
+    store: 'Docker App Store',
+    files: 'Files — File Manager',
+    storage: 'Storage & Dischi',
+    shares: 'Condivisioni & Protocolli',
+    users: 'Utenti & Permessi',
+    settings: 'Impostazioni Sistema',
+    ai: 'NAS-OS AI Agent',
+    services: 'Servizi & Porte Attive',
+    logs: 'Log di Sistema (journalctl)',
+  };
+  return titles[win];
+}
 
-  ringOffset(percent: number): number {
-    const circumference = 2 * Math.PI * 15; // ~94.25
-    const clamped = Math.min(100, Math.max(0, percent));
-    return circumference - (clamped / 100) * circumference;
-  }
-
-  primaryDisk() {
-    const disks = this.systemInfo()?.disks ?? [];
-    return (
-      disks.find((d) => d.mountpoint === '/DATA') ??
-      disks.find((d) => d.mountpoint === '/') ??
-      disks[0] ??
-      null
-    );
-  }
-
-  filteredStacks(): StackInfo[] {
-    const q = this.desktopSearch.trim().toLowerCase();
-    if (!q) return this.stacks();
-    return this.stacks().filter((s) => s.name.toLowerCase().includes(q));
-  }
-
-  onSearchSubmit(): void {
-    if (this.desktopSearch.trim() && this.filteredStacks().length === 0) {
-      this.activeWindow.set('store');
+getWebPort(stack: StackInfo): string | null {
+  const tcpPorts: string[] = [];
+  for (const c of stack.containers) {
+    if (!c.ports) continue;
+    for (const m of c.ports.matchAll(/:(\d+)->(\d+)\/tcp/g)) {
+      if (m[1]) tcpPorts.push(m[1]);
     }
-  }
-
-  toggleStackMenu(name: string): void {
-    this.openMenuStack.set(this.openMenuStack() === name ? null : name);
-  }
-
-  wallpaperClass(): string {
-    switch (this.uiSettings().wallpaper) {
-      case 'midnight':
-        return 'bg-gradient-to-br from-slate-950 via-purple-950/85 to-slate-900';
-      case 'ocean':
-        return 'bg-gradient-to-br from-[#071929] via-[#0c3554] to-[#0a2538]';
-      case 'carbon':
-        return 'bg-gradient-to-br from-zinc-950 via-neutral-900 to-zinc-900';
-      case 'aurora':
-        return 'bg-gradient-to-br from-[#092138] via-[#123d5e] to-[#0b263d]';
-      default:
-        return 'bg-[#090e1a]';
-    }
-  }
-
-  wallpaperStyle(): Record<string, string> {
-    const wp = this.uiSettings().wallpaper;
-    if (wp === 'custom') {
-      return {
-        'background-image': `url('/api/settings/wallpaper/image?v=${this.wallpaperVersion()}')`,
-      };
-    }
-    if (wp === 'silo-landscape') {
-      return {
-        'background-image': "url('/silo-wallpaper.svg')",
-      };
-    }
-    return {};
-  }
-
-  getWindowTitle(win: Exclude<ActiveWindow, null>): string {
-    const titles: Record<Exclude<ActiveWindow, null>, string> = {
-      store: 'Docker App Store',
-      files: 'Files — File Manager',
-      storage: 'Storage & Dischi',
-      shares: 'Condivisioni & Protocolli',
-      users: 'Utenti & Permessi',
-      settings: 'Impostazioni Sistema',
-      ai: 'NAS-OS AI Agent',
-      services: 'Servizi & Porte Attive',
-      logs: 'Log di Sistema (journalctl)',
-    };
-    return titles[win];
-  }
-
-  getWebPort(stack: StackInfo): string | null {
-    const tcpPorts: string[] = [];
-    for (const c of stack.containers) {
-      if (!c.ports) continue;
-      for (const m of c.ports.matchAll(/:(\d+)->(\d+)\/tcp/g)) {
+    if (tcpPorts.length === 0) {
+      for (const m of c.ports.matchAll(/:(\d+)->/g)) {
         if (m[1]) tcpPorts.push(m[1]);
       }
-      if (tcpPorts.length === 0) {
-        for (const m of c.ports.matchAll(/:(\d+)->/g)) {
-          if (m[1]) tcpPorts.push(m[1]);
-        }
-      }
-    }
-    if (tcpPorts.length === 0) return null;
-
-    const preferred = ['8096', '80', '8080', '9000', '3000', '5000', '8000', '443', '8443'];
-    return tcpPorts.find((p) => preferred.includes(p)) ?? tcpPorts[0];
-  }
-
-  getAppUrl(port: string): string {
-    return `${window.location.protocol}//${window.location.hostname}:${port}`;
-  }
-
-  openStackApp(stack: StackInfo): void {
-    const port = this.getWebPort(stack);
-    if (port) {
-      window.open(this.getAppUrl(port), '_blank', 'noopener');
-    } else {
-      this.toggleStackMenu(stack.name);
     }
   }
+  if (tcpPorts.length === 0) return null;
 
-  runStackAction(
-    name: string,
-    action: 'start' | 'stop' | 'restart' | 'remove'
-  ): void {
-    this.openMenuStack.set(null);
-    if (
-      action === 'remove' &&
-      !confirm(`Rimuovere lo stack "${name}" e fermare i suoi container?`)
+  const preferred = ['8096', '80', '8080', '9000', '3000', '5000', '8000', '443', '8443'];
+  return tcpPorts.find((p) => preferred.includes(p)) ?? tcpPorts[0];
+}
+
+getAppUrl(port: string): string {
+  return `${window.location.protocol}//${window.location.hostname}:${port}`;
+}
+
+openStackApp(stack: StackInfo): void {
+  const port = this.getWebPort(stack);
+  if(port) {
+    window.open(this.getAppUrl(port), '_blank', 'noopener');
+  } else {
+    this.toggleStackMenu(stack.name);
+  }
+}
+
+runStackAction(
+  name: string,
+  action: 'start' | 'stop' | 'restart' | 'remove'
+): void {
+  this.openMenuStack.set(null);
+  if(
+    action === 'remove' &&
+  !confirm(`Rimuovere lo stack "${name}" e fermare i suoi container?`)
     ) {
-      return;
-    }
-    this.api.stackAction(name, action).subscribe({
-      next: () => this.refreshAll(),
-      error: () => {},
-    });
+  return;
+}
+this.api.stackAction(name, action).subscribe({
+  next: () => this.refreshAll(),
+  error: () => { },
+});
   }
 
-  openInspectedEditor(inspected: InspectedImage): void {
-    this.editorState.set({
-      inspected,
-      stackName: inspected.appName,
-      initialYaml: inspected.composeYaml,
-      lockStackName: false,
-    });
-  }
+openInspectedEditor(inspected: InspectedImage): void {
+  this.editorState.set({
+    inspected,
+    stackName: inspected.appName,
+    initialYaml: inspected.composeYaml,
+    lockStackName: false,
+  });
+}
 
-  openExistingStackEditor(stackName: string): void {
-    this.openMenuStack.set(null);
-    this.api.getStackCompose(stackName).subscribe({
-      next: (res) => {
-        this.editorState.set({
-          inspected: null,
-          stackName: res.stackName,
-          initialYaml: res.yamlContent,
-          lockStackName: true,
-        });
-      },
-      error: () => {},
-    });
-  }
+openExistingStackEditor(stackName: string): void {
+  this.openMenuStack.set(null);
+  this.api.getStackCompose(stackName).subscribe({
+    next: (res) => {
+      this.editorState.set({
+        inspected: null,
+        stackName: res.stackName,
+        initialYaml: res.yamlContent,
+        lockStackName: true,
+      });
+    },
+    error: () => { },
+  });
+}
 
-  onStackDeployed(): void {
-    this.activeWindow.set(null);
-    this.refreshAll();
-  }
+onStackDeployed(): void {
+  this.activeWindow.set(null);
+  this.refreshAll();
+}
 
-  openStackLogs(stackName: string): void {
-    this.openMenuStack.set(null);
-    this.logsEventSource?.close();
-    this.logsStack.set(stackName);
-    this.liveLogLines.set([]);
-    this.logsEventSource = this.api.streamStackLogs(
-      stackName,
-      (msg) => {
-        this.liveLogLines.update((prev) => [...prev.slice(-400), msg]);
-      },
-      () => {},
-      () => {}
-    );
-  }
+openStackLogs(stackName: string): void {
+  this.openMenuStack.set(null);
+  this.logsEventSource?.close();
+  this.logsStack.set(stackName);
+  this.liveLogLines.set([]);
+  this.logsEventSource = this.api.streamStackLogs(
+    stackName,
+    (msg) => {
+      this.liveLogLines.update((prev) => [...prev.slice(-400), msg]);
+    },
+    () => { },
+    () => { }
+  );
+}
 
-  closeLogs(): void {
-    this.logsEventSource?.close();
-    this.logsStack.set(null);
-  }
+closeLogs(): void {
+  this.logsEventSource?.close();
+  this.logsStack.set(null);
+}
 
-  formatSpeed(bytesPerSec: number): string {
-    if (!bytesPerSec || bytesPerSec <= 0) return '0 B/s';
-    const units = ['B/s', 'KB/s', 'MB/s', 'GB/s'];
-    const i = Math.min(units.length - 1, Math.floor(Math.log(bytesPerSec) / Math.log(1024)));
-    return `${(bytesPerSec / Math.pow(1024, i)).toFixed(i >= 1 ? 1 : 0)} ${units[i]}`;
-  }
+formatSpeed(bytesPerSec: number): string {
+  if (!bytesPerSec || bytesPerSec <= 0) return '0 B/s';
+  const units = ['B/s', 'KB/s', 'MB/s', 'GB/s'];
+  const i = Math.min(units.length - 1, Math.floor(Math.log(bytesPerSec) / Math.log(1024)));
+  return `${(bytesPerSec / Math.pow(1024, i)).toFixed(i >= 1 ? 1 : 0)} ${units[i]}`;
+}
 
-  formatBytes(bytes: number): string {
-    if (!bytes || bytes <= 0) return '0 B';
-    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-    const i = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)));
-    return `${(bytes / Math.pow(1024, i)).toFixed(i >= 2 ? 1 : 0)} ${units[i]}`;
-  }
+formatBytes(bytes: number): string {
+  if (!bytes || bytes <= 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)));
+  return `${(bytes / Math.pow(1024, i)).toFixed(i >= 2 ? 1 : 0)} ${units[i]}`;
+}
 
-  formatUptime(seconds: number): string {
-    const days = Math.floor(seconds / 86400);
-    const hours = Math.floor((seconds % 86400) / 3600);
-    const mins = Math.floor((seconds % 3600) / 60);
-    if (days > 0) return `${days}d ${hours}h`;
-    if (hours > 0) return `${hours}h ${mins}m`;
-    return `${mins}m`;
-  }
+formatUptime(seconds: number): string {
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor((seconds % 86400) / 3600);
+  const mins = Math.floor((seconds % 3600) / 60);
+  if (days > 0) return `${days}d ${hours}h`;
+  if (hours > 0) return `${hours}h ${mins}m`;
+  return `${mins}m`;
+}
 }

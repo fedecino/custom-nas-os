@@ -1,6 +1,7 @@
 import {
   Component,
   EventEmitter,
+  Input,
   OnInit,
   Output,
   inject,
@@ -16,13 +17,33 @@ import {
   SystemUpdateStatus,
   WallpaperType,
 } from '../../services/api.service';
+import { StorageManagerComponent } from '../storage-manager/storage-manager.component';
+import { SharesManagerComponent } from '../shares-manager/shares-manager.component';
+import { UsersManagerComponent } from '../users-manager/users-manager.component';
+import { ServicesManagerComponent } from '../services-manager/services-manager.component';
 
-type SettingsCategory = 'desktop' | 'login' | 'network' | 'ai' | 'updates';
+export type SettingsCategory =
+  | 'desktop'
+  | 'login'
+  | 'storage'
+  | 'shares'
+  | 'users'
+  | 'services'
+  | 'network'
+  | 'ai'
+  | 'updates';
 
 @Component({
   selector: 'app-settings-app',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [
+    CommonModule,
+    FormsModule,
+    StorageManagerComponent,
+    SharesManagerComponent,
+    UsersManagerComponent,
+    ServicesManagerComponent,
+  ],
   template: `
     <div class="flex h-full flex-col gap-5 md:flex-row">
       <!-- Left Categories Sidebar -->
@@ -204,6 +225,26 @@ type SettingsCategory = 'desktop' | 'login' | 'network' | 'ai' | 'updates';
               Salva Impostazioni
             </button>
           </div>
+        }
+
+        <!-- CATEGORY: Dischi & Storage -->
+        @if (activeCategory() === 'storage') {
+          <app-storage-manager />
+        }
+
+        <!-- CATEGORY: Condivisioni -->
+        @if (activeCategory() === 'shares') {
+          <app-shares-manager />
+        }
+
+        <!-- CATEGORY: Utenti & Permessi -->
+        @if (activeCategory() === 'users') {
+          <app-users-manager />
+        }
+
+        <!-- CATEGORY: Servizi, Porte & Firewall -->
+        @if (activeCategory() === 'services') {
+          <app-services-manager />
         }
 
         <!-- CATEGORY 3: Rete & Sistema -->
@@ -538,6 +579,9 @@ type SettingsCategory = 'desktop' | 'login' | 'network' | 'ai' | 'updates';
 export class SettingsAppComponent implements OnInit {
   private readonly api = inject(ApiService);
 
+  @Input() set initialCategory(cat: SettingsCategory | null) {
+    if (cat) this.activeCategory.set(cat);
+  }
   @Output() updated = new EventEmitter<NasSettingsResponse['settings']>();
 
   activeCategory = signal<SettingsCategory>('desktop');
@@ -548,12 +592,16 @@ export class SettingsAppComponent implements OnInit {
     subtitle: string;
     icon: string;
   }> = [
-    { id: 'desktop', label: 'Aspetto', subtitle: 'Nome & Wallpaper', icon: '🎨' },
-    { id: 'login', label: 'Schermata Login', subtitle: 'Testi & Sfondo', icon: '🔐' },
-    { id: 'network', label: 'Rete & Hostname', subtitle: 'IP & Interfacce', icon: '🌐' },
-    { id: 'ai', label: 'Assistente AI', subtitle: 'Cloud o LLM Locale', icon: '🤖' },
-    { id: 'updates', label: 'Aggiornamenti', subtitle: 'SiloOs & Debian', icon: '🔄' },
-  ];
+      { id: 'desktop', label: 'Aspetto', subtitle: 'Nome & Wallpaper', icon: '🎨' },
+      { id: 'login', label: 'Schermata Login', subtitle: 'Testi & Sfondo', icon: '🔐' },
+      { id: 'storage', label: 'Dischi & Storage', subtitle: 'Mount, RAID & SMART', icon: '🖴' },
+      { id: 'shares', label: 'Condivisioni', subtitle: 'SMB, NFS & FTP', icon: '🔗' },
+      { id: 'users', label: 'Utenti & Permessi', subtitle: 'Account & Password', icon: '👤' },
+      { id: 'services', label: 'Servizi & Firewall', subtitle: 'Porte, Nginx & UFW', icon: '🔌' },
+      { id: 'network', label: 'Rete & Hostname', subtitle: 'IP & Interfacce', icon: '🌐' },
+      { id: 'ai', label: 'Assistente AI', subtitle: 'Cloud o LLM Locale', icon: '🤖' },
+      { id: 'updates', label: 'Aggiornamenti', subtitle: 'SiloOs & Debian', icon: '🔄' },
+    ];
 
   nasName = 'SiloOs';
   hostname = '';
@@ -596,69 +644,69 @@ export class SettingsAppComponent implements OnInit {
     baseUrl: string;
     model: string;
   }> = [
-    {
-      id: 'ollama',
-      label: 'Ollama (Locale / LAN)',
-      baseUrl: 'http://localhost:11434/v1',
-      model: 'llama3.2',
-    },
-    {
-      id: 'lmstudio',
-      label: 'LM Studio (LAN)',
-      baseUrl: 'http://localhost:1234/v1',
-      model: 'local-model',
-    },
-    {
-      id: 'openai',
-      label: 'OpenAI (Cloud)',
-      baseUrl: 'https://api.openai.com/v1',
-      model: 'gpt-4o-mini',
-    },
-    {
-      id: 'gemini',
-      label: 'Google Gemini (Cloud)',
-      baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
-      model: 'gemini-2.5-flash',
-    },
-    {
-      id: 'custom',
-      label: 'Custom OpenAI-API',
-      baseUrl: '',
-      model: '',
-    },
-  ];
+      {
+        id: 'ollama',
+        label: 'Ollama (Locale / LAN)',
+        baseUrl: 'http://localhost:11434/v1',
+        model: 'llama3.2',
+      },
+      {
+        id: 'lmstudio',
+        label: 'LM Studio (LAN)',
+        baseUrl: 'http://localhost:1234/v1',
+        model: 'local-model',
+      },
+      {
+        id: 'openai',
+        label: 'OpenAI (Cloud)',
+        baseUrl: 'https://api.openai.com/v1',
+        model: 'gpt-4o-mini',
+      },
+      {
+        id: 'gemini',
+        label: 'Google Gemini (Cloud)',
+        baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+        model: 'gemini-2.5-flash',
+      },
+      {
+        id: 'custom',
+        label: 'Custom OpenAI-API',
+        baseUrl: '',
+        model: '',
+      },
+    ];
 
   wallpapers: Array<{
     id: WallpaperType;
     label: string;
     preview: string;
   }> = [
-    {
-      id: 'silo-landscape',
-      label: 'SiloOs Peak',
-      preview: 'bg-gradient-to-br from-[#090e1a] via-[#141e33] to-[#38bdf8]/40',
-    },
-    {
-      id: 'aurora',
-      label: 'Aurora',
-      preview: 'bg-gradient-to-br from-slate-950 via-indigo-950 to-sky-900',
-    },
-    {
-      id: 'midnight',
-      label: 'Midnight',
-      preview: 'bg-gradient-to-br from-slate-950 via-purple-950 to-slate-900',
-    },
-    {
-      id: 'ocean',
-      label: 'Ocean',
-      preview: 'bg-gradient-to-br from-slate-950 via-cyan-950 to-teal-900',
-    },
-    {
-      id: 'carbon',
-      label: 'Carbon',
-      preview: 'bg-gradient-to-br from-zinc-950 via-neutral-900 to-zinc-800',
-    },
-  ];
+      {
+        id: 'silo-landscape',
+        label: 'SiloOs Peak',
+        preview: 'bg-gradient-to-br from-[#090e1a] via-[#141e33] to-[#38bdf8]/40',
+      },
+      {
+        id: 'aurora',
+        label: 'Aurora',
+        preview: 'bg-gradient-to-br from-slate-950 via-indigo-950 to-sky-900',
+      },
+      {
+        id: 'midnight',
+        label: 'Midnight',
+        preview: 'bg-gradient-to-br from-slate-950 via-purple-950 to-slate-900',
+      },
+      {
+        id: 'ocean',
+        label: 'Ocean',
+        preview: 'bg-gradient-to-br from-slate-950 via-cyan-950 to-teal-900',
+      },
+      {
+        id: 'carbon',
+        label: 'Carbon',
+        preview: 'bg-gradient-to-br from-zinc-950 via-neutral-900 to-zinc-800',
+      },
+    ];
 
   ngOnInit(): void {
     this.api.getSettings().subscribe({
@@ -680,7 +728,7 @@ export class SettingsAppComponent implements OnInit {
           this.apiKeyPreview.set(res.settings.ai.apiKeyPreview ?? '');
         }
       },
-      error: () => {},
+      error: () => { },
     });
   }
 
@@ -895,7 +943,7 @@ export class SettingsAppComponent implements OnInit {
               this.updatingSystem.set(false);
               window.location.reload();
             },
-            error: () => {},
+            error: () => { },
           });
         },
       });
