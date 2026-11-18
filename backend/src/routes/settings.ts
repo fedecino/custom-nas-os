@@ -211,17 +211,50 @@ async function verifySudoUserPassword(
 router.get('/updates', async (_req: Request, res: Response) => {
   const settings = await readFullSettings();
 
+  // Fetch latest GitHub Release metadata (if any)
+  let latestReleaseVersion: string | null = null;
+  let latestReleaseDate: string | null = null;
+  let latestReleaseNotes: string | null = null;
+
+  try {
+    const match = settings.repoUrl.match(/github\.com\/([^/]+\/[^/.]+)/);
+    if (match?.[1]) {
+      const ghRes = await fetch(
+        `https://api.github.com/repos/${match[1]}/releases/latest`,
+        {
+          headers: { Accept: 'application/vnd.github+json' },
+          signal: AbortSignal.timeout(5000),
+        }
+      );
+      if (ghRes.ok) {
+        const gh = (await ghRes.json()) as {
+          tag_name?: string;
+          published_at?: string;
+          body?: string;
+          name?: string;
+        };
+        latestReleaseVersion = gh.tag_name ?? gh.name ?? null;
+        latestReleaseDate = gh.published_at ?? null;
+        latestReleaseNotes = gh.body?.trim() || gh.name || null;
+      }
+    }
+  } catch {
+    // GitHub API optional fallback to git commit info
+  }
+
   try {
     await fs.access(path.join(SRC_DIR, '.git'));
   } catch {
     res.json({
       initialized: false,
-      repoUrl: settings.repoUrl,
       updateAvailable: true,
       behindCount: 0,
       currentCommit: null,
       remoteCommit: null,
-      latestMessage: 'Repository non ancora clonato in /opt/nas-os/src',
+      latestReleaseVersion,
+      latestReleaseDate,
+      latestReleaseNotes:
+        latestReleaseNotes ?? 'Repository non ancora inizializzato su questo NAS',
     });
     return;
   }
@@ -230,22 +263,24 @@ router.get('/updates', async (_req: Request, res: Response) => {
     await execFileAsync('git', ['-C', SRC_DIR, 'fetch', '--all', '--prune'], {
       timeout: 15000,
     });
-    const [localRes, remoteRes, countRes, msgRes] = await Promise.all([
+    const [localRes, remoteRes, countRes, msgRes, dateRes] = await Promise.all([
       execFileAsync('git', ['-C', SRC_DIR, 'rev-parse', '--short', 'HEAD']),
       execFileAsync('git', ['-C', SRC_DIR, 'rev-parse', '--short', '@{u}']),
       execFileAsync('git', ['-C', SRC_DIR, 'rev-list', '--count', 'HEAD..@{u}']),
       execFileAsync('git', ['-C', SRC_DIR, 'log', '-1', '--pretty=%s', '@{u}']),
+      execFileAsync('git', ['-C', SRC_DIR, 'log', '-1', '--pretty=%cI', '@{u}']),
     ]);
 
     const behindCount = Number(countRes.stdout.trim()) || 0;
     res.json({
       initialized: true,
-      repoUrl: settings.repoUrl,
       currentCommit: localRes.stdout.trim(),
       remoteCommit: remoteRes.stdout.trim(),
       behindCount,
       updateAvailable: behindCount > 0,
-      latestMessage: msgRes.stdout.trim(),
+      latestReleaseVersion: latestReleaseVersion ?? remoteRes.stdout.trim(),
+      latestReleaseDate: latestReleaseDate ?? dateRes.stdout.trim(),
+      latestReleaseNotes: latestReleaseNotes ?? msgRes.stdout.trim(),
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Controllo aggiornamenti fallito';

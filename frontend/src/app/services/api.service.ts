@@ -186,12 +186,13 @@ export interface NasSettingsResponse {
 
 export interface SystemUpdateStatus {
   initialized: boolean;
-  repoUrl: string;
   currentCommit: string | null;
   remoteCommit: string | null;
   behindCount: number;
   updateAvailable: boolean;
-  latestMessage: string;
+  latestReleaseVersion: string | null;
+  latestReleaseDate: string | null;
+  latestReleaseNotes: string | null;
 }
 
 export interface AiChatMessage {
@@ -778,13 +779,12 @@ export class ApiService {
   async applySystemUpdateSse(
     username: string,
     password: string,
-    repoUrl: string,
     onLog: (msg: string) => void
   ): Promise<void> {
     const response = await fetch('/api/settings/updates/apply', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password, repoUrl }),
+      body: JSON.stringify({ username, password }),
     });
 
     if (!response.ok) {
