@@ -25,6 +25,10 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "22"
+          cache: "npm"
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
 
       - name: Check if a new release is needed
         id: check
@@ -48,10 +52,35 @@ jobs:
             echo "should_release=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Cache live-build packages & bootstrap
+        if: steps.check.outputs.should_release == 'true'
+        uses: actions/cache@v4
+        with:
+          path: iso-builder/.lb-cache
+          key: lb-cache-trixie-${{ hashFiles('iso-builder/config/package-lists/**', 'iso-builder/Dockerfile') }}
+          restore-keys: |
+            lb-cache-trixie-
+
+      - name: Setup Docker Buildx
+        if: steps.check.outputs.should_release == 'true'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build cached ISO builder image
+        if: steps.check.outputs.should_release == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: iso-builder
+          file: iso-builder/Dockerfile
+          load: true
+          tags: nas-os-iso-builder:trixie
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
       - name: Build x86_64 Bootable ISO via Docker
         if: steps.check.outputs.should_release == 'true'
         env:
           SILOOS_VERSION: ${{ steps.check.outputs.next_version }}
+          SKIP_DOCKER_BUILD: "1"
         run: |
           chmod +x iso-builder/build-iso-docker.sh iso-builder/build-iso.sh
           ./iso-builder/build-iso-docker.sh

@@ -9,6 +9,7 @@ out-tsc/
 # Generated ISO images and live-build work directory
 *.iso
 iso-builder/work/
+iso-builder/.lb-cache/
 
 # Environment & local data
 .env

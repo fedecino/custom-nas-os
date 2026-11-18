@@ -16,8 +16,12 @@ cd "${REPO_ROOT}/frontend"
 npm ci
 npm run build
 
-echo "==> [3/4] Building Docker ISO builder image (${IMAGE_NAME})..."
-docker build -t "${IMAGE_NAME}" -f "${SCRIPT_DIR}/Dockerfile" "${SCRIPT_DIR}"
+if [ "${SKIP_DOCKER_BUILD:-0}" != "1" ]; then
+  echo "==> [3/4] Building Docker ISO builder image (${IMAGE_NAME})..."
+  docker build -t "${IMAGE_NAME}" -f "${SCRIPT_DIR}/Dockerfile" "${SCRIPT_DIR}"
+else
+  echo "==> [3/4] Using pre-built Docker ISO builder image (${IMAGE_NAME})..."
+fi
 
 APP_VERSION="${SILOOS_VERSION:-$(cat "${REPO_ROOT}/VERSION" 2>/dev/null | tr -d '[:space:]' || echo '1.0.0')}"
 
@@ -25,6 +29,7 @@ echo "==> [4/4] Running live-build inside privileged Docker container..."
 docker run --rm --privileged \
   -e SKIP_APP_BUILD=1 \
   -e LB_WORK_DIR=/tmp/lb-work \
+  -e LB_CACHE_DIR=/workspace/iso-builder/.lb-cache \
   -e SILOOS_VERSION="${APP_VERSION}" \
   -e HOST_UID="$(id -u)" \
   -e HOST_GID="$(id -g)" \

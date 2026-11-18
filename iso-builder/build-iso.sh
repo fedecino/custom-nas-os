@@ -44,6 +44,10 @@ fi
 echo "==> [4/6] Preparing live-build workspace in ${WORK_DIR}..."
 rm -rf "${WORK_DIR}"
 mkdir -p "${WORK_DIR}"
+if [ -n "${LB_CACHE_DIR:-}" ]; then
+  mkdir -p "${LB_CACHE_DIR}"
+  ln -sfn "${LB_CACHE_DIR}" "${WORK_DIR}/cache"
+fi
 cd "${WORK_DIR}"
 
 lb config \
@@ -54,6 +58,9 @@ lb config \
   --debian-installer-gui false \
   --archive-areas "main contrib non-free non-free-firmware" \
   --debootstrap-options "--include=ca-certificates" \
+  --cache true \
+  --cache-packages true \
+  --cache-stages "bootstrap" \
   --compression gzip \
   --apt-recommends false \
   --memtest none \
