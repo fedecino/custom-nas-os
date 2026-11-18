@@ -663,4 +663,427 @@ router.delete('/proxy-routes/:slug', async (req: Request, res: Response) => {
   res.json({ success: true, routes, warnings });
 });
 
+// ---------------------------------------------------------------------------
+// Physical Network Interfaces & IPv4 Configuration (NetworkManager / nmcli)
+// ---------------------------------------------------------------------------
+
+export interface NetworkInterfaceConfig {
+  name: string;
+  type: 'ethernet' | 'wifi';
+  state: string;
+  mac: string;
+  speedMbps: number | null;
+  carrier: boolean;
+  connectionName: string | null;
+  connectionUuid: string | null;
+  method: 'auto' | 'manual';
+  ip: string;
+  prefix: number;
+  gateway: string;
+  dns: string[];
+  activeIp: string;
+  activePrefix: number;
+  activeGateway: string;
+  activeDns: string[];
+  addresses: Array<{ family: string; address: string; mac: string }>;
+}
+
+const VIRTUAL_IFACE_RE = /^(lo|docker\d*|br-|veth|virbr|tun|tap|wg)/;
+
+function splitNmcliTerseLine(line: string): string[] {
+  const parts: string[] = [];
+  let current = '';
+  for (let i = 0; i < line.length; i++) {
+    if (line[i] === '\\' && i + 1 < line.length && (line[i + 1] === ':' || line[i + 1] === '\\')) {
+      current += line[i + 1];
+      i++;
+    } else if (line[i] === ':') {
+      parts.push(current);
+      current = '';
+    } else {
+      current += line[i];
+    }
+  }
+  parts.push(current);
+  return parts;
+}
+
+function isValidIpv4(ip: string): boolean {
+  const parts = ip.trim().split('.');
+  if (parts.length !== 4) return false;
+  return parts.every((p) => /^\d{1,3}$/.test(p) && Number(p) >= 0 && Number(p) <= 255);
+}
+
+function netmaskToPrefix(maskOrPrefix: string | number | undefined): number | null {
+  if (typeof maskOrPrefix === 'number') {
+    return Number.isInteger(maskOrPrefix) && maskOrPrefix >= 1 && maskOrPrefix <= 32
+      ? maskOrPrefix
+      : null;
+  }
+  const raw = String(maskOrPrefix ?? '').trim();
+  if (!raw) return null;
+  if (/^\d{1,2}$/.test(raw)) {
+    const n = Number(raw);
+    return n >= 1 && n <= 32 ? n : null;
+  }
+  if (!isValidIpv4(raw)) return null;
+  const bin = raw
+    .split('.')
+    .map((o) => Number(o).toString(2).padStart(8, '0'))
+    .join('');
+  if (!/^1*0*$/.test(bin)) return null;
+  const ones = bin.indexOf('0');
+  const prefix = ones === -1 ? 32 : ones;
+  return prefix >= 1 && prefix <= 32 ? prefix : null;
+}
+
+async function readSysfsString(filePath: string): Promise<string | null> {
+  try {
+    return (await fs.readFile(filePath, 'utf-8')).trim();
+  } catch {
+    return null;
+  }
+}
+
+async function listPhysicalNetworkInterfaces(): Promise<NetworkInterfaceConfig[]> {
+  const osIfaces = os.networkInterfaces();
+  const result: NetworkInterfaceConfig[] = [];
+
+  let nmDevices: Array<{ device: string; type: string; state: string; connection: string }> = [];
+  let nmConnections: Array<{ uuid: string; name: string; device: string; type: string }> = [];
+
+  try {
+    const [devOut, conOut] = await Promise.all([
+      execFileAsync('nmcli', ['-t', '-f', 'DEVICE,TYPE,STATE,CONNECTION', 'device', 'status'], {
+        timeout: 4000,
+      }),
+      execFileAsync('nmcli', ['-t', '-f', 'UUID,NAME,DEVICE,TYPE', 'connection', 'show'], {
+        timeout: 4000,
+      }),
+    ]);
+
+    nmDevices = devOut.stdout
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .map(splitNmcliTerseLine)
+      .map(([device, type, state, connection]) => ({
+        device: device ?? '',
+        type: type ?? '',
+        state: state ?? '',
+        connection: connection === '--' ? '' : (connection ?? ''),
+      }));
+
+    nmConnections = conOut.stdout
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .map(splitNmcliTerseLine)
+      .map(([uuid, name, device, type]) => ({
+        uuid: uuid ?? '',
+        name: name ?? '',
+        device: device === '--' ? '' : (device ?? ''),
+        type: type ?? '',
+      }));
+  } catch {
+    // nmcli unavailable (e.g. non-NM dev environment): fallback below
+  }
+
+  if (nmDevices.length > 0) {
+    const physicalDevs = nmDevices.filter(
+      (d) =>
+        (d.type === 'ethernet' || d.type === 'wifi') &&
+        d.device &&
+        !VIRTUAL_IFACE_RE.test(d.device)
+    );
+
+    for (const dev of physicalDevs) {
+      const osAddrs = (osIfaces[dev.device] ?? [])
+        .filter((a) => !a.internal)
+        .map((a) => ({ family: a.family, address: a.address, mac: a.mac }));
+
+      const macFromSys = await readSysfsString(`/sys/class/net/${dev.device}/address`);
+      const speedRaw = await readSysfsString(`/sys/class/net/${dev.device}/speed`);
+      const carrierRaw = await readSysfsString(`/sys/class/net/${dev.device}/carrier`);
+      const speedNum = speedRaw && /^\d+$/.test(speedRaw) ? Number(speedRaw) : null;
+
+      const matchedCon =
+        nmConnections.find((c) => c.device === dev.device) ??
+        nmConnections.find((c) => dev.connection && c.name === dev.connection) ??
+        null;
+
+      let method: 'auto' | 'manual' = 'auto';
+      let ip = '';
+      let prefix = 24;
+      let gateway = '';
+      let dns: string[] = [];
+      let activeIp = '';
+      let activePrefix = 24;
+      let activeGateway = '';
+      let activeDns: string[] = [];
+
+      const conKey = matchedCon?.uuid || dev.connection;
+      if (conKey) {
+        try {
+          const { stdout } = await execFileAsync(
+            'nmcli',
+            [
+              '-t',
+              '-f',
+              'ipv4.method,ipv4.addresses,ipv4.gateway,ipv4.dns,IP4.ADDRESS,IP4.GATEWAY,IP4.DNS',
+              'connection',
+              'show',
+              conKey,
+            ],
+            { timeout: 4000 }
+          );
+
+          for (const line of stdout.split('\n')) {
+            const idx = line.indexOf(':');
+            if (idx <= 0) continue;
+            const key = line.slice(0, idx).trim();
+            const val = line.slice(idx + 1).trim();
+
+            if (key === 'ipv4.method') {
+              method = val === 'manual' ? 'manual' : 'auto';
+            } else if (key === 'ipv4.addresses' && val && val !== '--') {
+              const first = val.split(',')[0].trim();
+              const [addr, pfx] = first.split('/');
+              if (addr && isValidIpv4(addr)) {
+                ip = addr;
+                if (pfx && /^\d+$/.test(pfx)) prefix = Number(pfx);
+              }
+            } else if (key === 'ipv4.gateway' && val && val !== '--') {
+              gateway = val;
+            } else if (key === 'ipv4.dns' && val && val !== '--') {
+              dns = val
+                .split(/[,;\s]+/)
+                .map((s) => s.trim())
+                .filter((s) => isValidIpv4(s));
+            } else if (key.startsWith('IP4.ADDRESS') && val && !activeIp) {
+              const [addr, pfx] = val.split('/');
+              if (addr && isValidIpv4(addr)) {
+                activeIp = addr;
+                if (pfx && /^\d+$/.test(pfx)) activePrefix = Number(pfx);
+              }
+            } else if (key === 'IP4.GATEWAY' && val && val !== '--') {
+              activeGateway = val;
+            } else if (key.startsWith('IP4.DNS') && val && isValidIpv4(val)) {
+              activeDns.push(val);
+            }
+          }
+        } catch {
+          // ignore per-connection read failure
+        }
+      }
+
+      if (!activeIp) {
+        const v4 = osAddrs.find((a) => a.family === 'IPv4');
+        if (v4) activeIp = v4.address;
+      }
+
+      result.push({
+        name: dev.device,
+        type: dev.type === 'wifi' ? 'wifi' : 'ethernet',
+        state: dev.state,
+        mac: macFromSys || osAddrs[0]?.mac || '',
+        speedMbps: speedNum && speedNum > 0 ? speedNum : null,
+        carrier: carrierRaw === '1',
+        connectionName: matchedCon?.name || dev.connection || null,
+        connectionUuid: matchedCon?.uuid || null,
+        method,
+        ip: ip || activeIp,
+        prefix: ip ? prefix : activePrefix,
+        gateway: gateway || activeGateway,
+        dns: dns.length > 0 ? dns : activeDns,
+        activeIp,
+        activePrefix,
+        activeGateway,
+        activeDns,
+        addresses: osAddrs,
+      });
+    }
+    return result;
+  }
+
+  // Fallback when nmcli is not present
+  for (const [name, addrs] of Object.entries(osIfaces)) {
+    if (VIRTUAL_IFACE_RE.test(name)) continue;
+    const nonInternal = (addrs ?? [])
+      .filter((a) => !a.internal)
+      .map((a) => ({ family: a.family, address: a.address, mac: a.mac }));
+    const v4 = nonInternal.find((a) => a.family === 'IPv4');
+    result.push({
+      name,
+      type: name.startsWith('wl') ? 'wifi' : 'ethernet',
+      state: nonInternal.length > 0 ? 'connected' : 'disconnected',
+      mac: nonInternal[0]?.mac || '',
+      speedMbps: null,
+      carrier: nonInternal.length > 0,
+      connectionName: null,
+      connectionUuid: null,
+      method: 'auto',
+      ip: v4?.address || '',
+      prefix: 24,
+      gateway: '',
+      dns: [],
+      activeIp: v4?.address || '',
+      activePrefix: 24,
+      activeGateway: '',
+      activeDns: [],
+      addresses: nonInternal,
+    });
+  }
+
+  return result;
+}
+
+router.get('/network', async (_req: Request, res: Response) => {
+  try {
+    const interfaces = await listPhysicalNetworkInterfaces();
+    res.json({ interfaces });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Impossibile leggere le interfacce di rete';
+    res.status(500).json({ error: message });
+  }
+});
+
+router.put('/network/:iface', async (req: Request, res: Response) => {
+  const iface = String(req.params.iface ?? '').trim();
+  if (!/^[a-zA-Z0-9._-]{1,32}$/.test(iface) || VIRTUAL_IFACE_RE.test(iface)) {
+    res.status(400).json({ error: 'Nome interfaccia di rete non valido' });
+    return;
+  }
+
+  const { method, ip, prefix, netmask, gateway, dns } = req.body as {
+    method?: 'auto' | 'manual';
+    ip?: string;
+    prefix?: number | string;
+    netmask?: string;
+    gateway?: string;
+    dns?: string[] | string;
+  };
+
+  if (method !== 'auto' && method !== 'manual') {
+    res.status(400).json({ error: 'Modalità non valida: scegli DHCP (auto) o Manuale (manual)' });
+    return;
+  }
+
+  const cleanIp = String(ip ?? '').trim();
+  const cleanGateway = String(gateway ?? '').trim();
+  const resolvedPrefix = netmaskToPrefix(netmask ?? prefix ?? 24);
+  const dnsList = (
+    Array.isArray(dns) ? dns : String(dns ?? '').split(/[,;\s]+/)
+  )
+    .map((d) => d.trim())
+    .filter(Boolean);
+
+  if (method === 'manual') {
+    if (!isValidIpv4(cleanIp)) {
+      res.status(400).json({ error: 'Indirizzo IPv4 non valido (es. 192.168.1.50)' });
+      return;
+    }
+    if (!resolvedPrefix) {
+      res.status(400).json({ error: 'Subnet mask o prefisso CIDR non valido (es. 255.255.255.0 o 24)' });
+      return;
+    }
+    if (cleanGateway && !isValidIpv4(cleanGateway)) {
+      res.status(400).json({ error: 'Gateway predefinito non valido (es. 192.168.1.1)' });
+      return;
+    }
+    for (const d of dnsList) {
+      if (!isValidIpv4(d)) {
+        res.status(400).json({ error: `Server DNS non valido: ${d}` });
+        return;
+      }
+    }
+  }
+
+  try {
+    const interfaces = await listPhysicalNetworkInterfaces();
+    const target = interfaces.find((i) => i.name === iface);
+    if (!target) {
+      res.status(404).json({ error: `Interfaccia fisica "${iface}" non trovata` });
+      return;
+    }
+
+    let conUuid = target.connectionUuid;
+    if (!conUuid) {
+      if (target.type === 'wifi') {
+        res.status(400).json({
+          error: 'Connetti prima l\'interfaccia Wi-Fi a una rete prima di modificarne l\'IP',
+        });
+        return;
+      }
+      const conName = `SiloOs-${iface}`;
+      await execFileAsync(
+        'nmcli',
+        ['connection', 'add', 'type', 'ethernet', 'ifname', iface, 'con-name', conName],
+        { timeout: 5000 }
+      );
+      const { stdout } = await execFileAsync(
+        'nmcli',
+        ['-t', '-f', 'UUID', 'connection', 'show', conName],
+        { timeout: 4000 }
+      );
+      conUuid = stdout.trim().split('\n')[0]?.trim() || conName;
+    }
+
+    const modifyArgs =
+      method === 'auto'
+        ? [
+            'connection',
+            'modify',
+            conUuid,
+            'ipv4.method',
+            'auto',
+            'ipv4.addresses',
+            '',
+            'ipv4.gateway',
+            '',
+            'ipv4.dns',
+            '',
+            'ipv4.ignore-auto-dns',
+            'no',
+          ]
+        : [
+            'connection',
+            'modify',
+            conUuid,
+            'ipv4.method',
+            'manual',
+            'ipv4.addresses',
+            `${cleanIp}/${resolvedPrefix}`,
+            'ipv4.gateway',
+            cleanGateway,
+            'ipv4.dns',
+            dnsList.join(','),
+            'ipv4.ignore-auto-dns',
+            dnsList.length > 0 ? 'yes' : 'no',
+          ];
+
+    await execFileAsync('nmcli', modifyArgs, { timeout: 5000 });
+
+    res.json({
+      success: true,
+      iface,
+      method,
+      ip: method === 'manual' ? cleanIp : null,
+      prefix: resolvedPrefix ?? 24,
+      gateway: cleanGateway,
+      dns: dnsList,
+    });
+
+    // Apply asynchronously after response is flushed so IP changes don't cut off the HTTP ACK
+    setTimeout(() => {
+      execFileAsync('nmcli', ['connection', 'up', conUuid!], { timeout: 10000 }).catch((err) => {
+        console.error(`[Network] nmcli connection up failed for ${iface}:`, err);
+      });
+    }, 350);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Errore durante la configurazione di rete';
+    res.status(500).json({ error: message });
+  }
+});
+
 export default router;

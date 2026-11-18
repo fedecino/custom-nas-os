@@ -26,6 +26,8 @@ import { ServicesManagerComponent } from './components/services-manager/services
 import { LogsViewerComponent } from './components/logs-viewer/logs-viewer.component';
 import { FileManagerComponent } from './components/file-manager/file-manager.component';
 import { LoginComponent } from './components/login/login.component';
+import { DialogHostComponent } from './components/dialog-host/dialog-host.component';
+import { DialogService } from './services/dialog.service';
 
 type ActiveWindow =
   | 'store'
@@ -56,6 +58,7 @@ type ActiveWindow =
     LogsViewerComponent,
     FileManagerComponent,
     LoginComponent,
+    DialogHostComponent,
   ],
   template: `
     @if (!authChecked()) {
@@ -934,10 +937,12 @@ type ActiveWindow =
       }
     </div>
     }
+    <app-dialog-host />
   `,
 })
 export class AppComponent implements OnInit, OnDestroy {
   private readonly api = inject(ApiService);
+  private readonly dialog = inject(DialogService);
 
   authChecked = signal(false);
   authenticated = signal(false);
@@ -1275,17 +1280,18 @@ openStackApp(stack: StackInfo): void {
   }
 }
 
-runStackAction(
+async runStackAction(
   name: string,
   action: 'start' | 'stop' | 'restart' | 'remove'
-): void {
+): Promise<void> {
   this.openMenuStack.set(null);
-  if(
-    action === 'remove' &&
-  !confirm(`Rimuovere lo stack "${name}" e fermare i suoi container?`)
-    ) {
-  return;
-}
+  if (action === 'remove') {
+    const confirmed = await this.dialog.confirm(
+      `Rimuovere lo stack "${name}" e fermare i suoi container?`,
+      { title: 'Rimuovi Stack', confirmText: 'Rimuovi', danger: true }
+    );
+    if (!confirmed) return;
+  }
 this.api.stackAction(name, action).subscribe({
   next: () => this.refreshAll(),
   error: () => { },

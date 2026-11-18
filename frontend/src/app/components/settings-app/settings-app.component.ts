@@ -14,6 +14,7 @@ import {
   ApiService,
   LoginScreenSettings,
   NasSettingsResponse,
+  NetworkInterfaceConfig,
   SystemUpdateStatus,
   WallpaperType,
 } from '../../services/api.service';
@@ -249,51 +250,249 @@ export type SettingsCategory =
 
         <!-- CATEGORY 3: Rete & Sistema -->
         @if (activeCategory() === 'network') {
-          <div class="rounded-2xl border border-white/10 bg-slate-900/60 p-5 space-y-5">
-            <div>
-              <h3 class="text-sm font-semibold text-white">Rete & Hostname</h3>
-              <p class="mt-0.5 text-xs text-slate-400">
-                Configura l'hostname del server e verifica gli indirizzi IP assegnati
-              </p>
-            </div>
+          <div class="space-y-4">
+            <!-- Hostname Card -->
+            <div class="rounded-2xl border border-white/10 bg-slate-900/60 p-5 space-y-4">
+              <div>
+                <h3 class="text-sm font-semibold text-white">Rete & Hostname</h3>
+                <p class="mt-0.5 text-xs text-slate-400">
+                  Configura l'hostname del server e gli indirizzi IP delle schede di rete fisiche
+                </p>
+              </div>
 
-            <div>
-              <label class="block text-xs font-medium text-slate-300">
-                Hostname Linux
-              </label>
-              <div class="mt-1.5 flex gap-3">
-                <input
-                  type="text"
-                  [(ngModel)]="hostname"
-                  class="w-full max-w-sm rounded-xl border border-white/10 bg-black/30 px-3 py-2 font-mono text-xs text-white focus:border-[#38bdf8] focus:outline-none"
-                />
-                <button
-                  (click)="save()"
-                  class="rounded-xl bg-[#38bdf8] px-5 py-2 text-xs font-semibold text-[#090e1a] hover:brightness-110"
-                >
-                  Applica Hostname
-                </button>
+              <div>
+                <label class="block text-xs font-medium text-slate-300">
+                  Hostname Linux
+                </label>
+                <div class="mt-1.5 flex flex-wrap gap-3">
+                  <input
+                    type="text"
+                    [(ngModel)]="hostname"
+                    class="w-full max-w-sm rounded-xl border border-white/10 bg-black/30 px-3 py-2 font-mono text-xs text-white focus:border-[#38bdf8] focus:outline-none"
+                  />
+                  <button
+                    (click)="save()"
+                    class="rounded-xl bg-[#38bdf8] px-5 py-2 text-xs font-semibold text-[#090e1a] hover:brightness-110"
+                  >
+                    Applica Hostname
+                  </button>
+                </div>
               </div>
             </div>
 
-            <div class="space-y-2.5 border-t border-white/10 pt-4">
-              <h4 class="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                Interfacce di Rete Attive
-              </h4>
-              <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                @for (iface of network(); track iface.name) {
-                  <div class="rounded-xl border border-white/10 bg-black/25 p-3.5">
-                    <div class="font-mono text-xs font-semibold text-[#38bdf8]">
-                      {{ iface.name }}
+            <!-- Physical Network Interfaces Card -->
+            <div class="rounded-2xl border border-white/10 bg-slate-900/60 p-5 space-y-4">
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h4 class="text-sm font-semibold text-white">
+                    Configurazione IP Scheda di Rete Fisica
+                  </h4>
+                  <p class="mt-0.5 text-xs text-slate-400">
+                    Seleziona una scheda di rete fisica per impostare DHCP automatico oppure IP statico manuale
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  (click)="loadPhysicalInterfaces()"
+                  [disabled]="loadingNetwork()"
+                  class="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-300 hover:bg-white/10 disabled:opacity-50"
+                >
+                  {{ loadingNetwork() ? 'Aggiornamento...' : '↻ Aggiorna' }}
+                </button>
+              </div>
+
+              @if (physicalInterfaces().length === 0 && !loadingNetwork()) {
+                <div class="rounded-xl border border-white/10 bg-black/25 p-4 text-xs text-slate-400">
+                  Nessuna scheda di rete fisica rilevata.
+                </div>
+              } @else {
+                <!-- Interface Selector Cards -->
+                <div class="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+                  @for (iface of physicalInterfaces(); track iface.name) {
+                    <button
+                      type="button"
+                      (click)="selectNetworkInterface(iface)"
+                      class="rounded-xl border p-3.5 text-left transition"
+                      [ngClass]="
+                        selectedIfaceName() === iface.name
+                          ? 'border-[#38bdf8] bg-[#38bdf8]/10'
+                          : 'border-white/10 bg-black/25 hover:bg-white/5'
+                      "
+                    >
+                      <div class="flex items-center justify-between gap-2">
+                        <div class="flex items-center gap-2">
+                          <span class="font-mono text-xs font-semibold text-[#38bdf8]">
+                            {{ iface.name }}
+                          </span>
+                          <span class="rounded bg-white/10 px-1.5 py-0.5 text-[10px] uppercase text-slate-300">
+                            {{ iface.type === 'wifi' ? 'Wi-Fi' : 'Ethernet' }}
+                          </span>
+                        </div>
+                        <span
+                          class="rounded-full px-2 py-0.5 text-[10px] font-medium"
+                          [ngClass]="
+                            iface.state.startsWith('connected')
+                              ? 'bg-emerald-500/20 text-emerald-300'
+                              : 'bg-slate-700/60 text-slate-400'
+                          "
+                        >
+                          {{ iface.state.startsWith('connected') ? 'Connessa' : iface.state }}
+                        </span>
+                      </div>
+
+                      <div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] text-slate-300">
+                        <span>
+                          IP: {{ iface.activeIp ? iface.activeIp + '/' + iface.activePrefix : 'Non assegnato' }}
+                        </span>
+                        <span class="text-slate-500">·</span>
+                        <span class="text-slate-400">
+                          {{ iface.method === 'manual' ? 'Manuale' : 'DHCP' }}
+                        </span>
+                        @if (iface.speedMbps) {
+                          <span class="text-slate-500">·</span>
+                          <span class="text-slate-400">{{ iface.speedMbps }} Mbps</span>
+                        }
+                      </div>
+
+                      @if (iface.mac) {
+                        <div class="mt-1 font-mono text-[10px] text-slate-500">
+                          MAC: {{ iface.mac }}
+                        </div>
+                      }
+                    </button>
+                  }
+                </div>
+
+                <!-- Selected Interface Configuration Form -->
+                @if (selectedIfaceName()) {
+                  <div class="space-y-4 rounded-xl border border-white/10 bg-black/30 p-4">
+                    <div class="flex flex-wrap items-center justify-between gap-3">
+                      <div class="text-xs font-semibold text-white">
+                        Configurazione per <span class="font-mono text-[#38bdf8]">{{ selectedIfaceName() }}</span>
+                      </div>
+
+                      <!-- DHCP / Manual Toggle -->
+                      <div class="inline-flex rounded-xl border border-white/10 bg-slate-950/70 p-1">
+                        <button
+                          type="button"
+                          (click)="netForm.method = 'auto'"
+                          class="rounded-lg px-3 py-1.5 text-xs font-medium transition"
+                          [ngClass]="
+                            netForm.method === 'auto'
+                              ? 'bg-[#38bdf8] text-[#090e1a]'
+                              : 'text-slate-300'
+                          "
+                        >
+                          DHCP (Automatico)
+                        </button>
+                        <button
+                          type="button"
+                          (click)="netForm.method = 'manual'"
+                          class="rounded-lg px-3 py-1.5 text-xs font-medium transition"
+                          [ngClass]="
+                            netForm.method === 'manual'
+                              ? 'bg-[#38bdf8] text-[#090e1a]'
+                              : 'text-slate-300'
+                          "
+                        >
+                          Manuale (IP Statico)
+                        </button>
+                      </div>
                     </div>
-                    @for (addr of iface.addresses; track addr.address) {
-                      <div class="mt-1 font-mono text-[11px] text-slate-300">
-                        {{ addr.family }}: {{ addr.address }}
+
+                    @if (netForm.method === 'auto') {
+                      <div class="rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-2.5 text-xs text-slate-300">
+                        L'indirizzo IPv4, la subnet mask, il gateway e i server DNS verranno ottenuti automaticamente dal server DHCP della rete (router).
+                      </div>
+                    } @else {
+                      <div class="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
+                        <div>
+                          <label class="block text-xs font-medium text-slate-300">
+                            Indirizzo IPv4
+                          </label>
+                          <input
+                            type="text"
+                            [(ngModel)]="netForm.ip"
+                            placeholder="es. 192.168.1.50"
+                            class="mt-1 w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2 font-mono text-xs text-white focus:border-[#38bdf8] focus:outline-none"
+                          />
+                        </div>
+
+                        <div>
+                          <label class="block text-xs font-medium text-slate-300">
+                            Subnet Mask (o prefisso CIDR)
+                          </label>
+                          <input
+                            type="text"
+                            [(ngModel)]="netForm.netmask"
+                            placeholder="255.255.255.0 oppure 24"
+                            class="mt-1 w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2 font-mono text-xs text-white focus:border-[#38bdf8] focus:outline-none"
+                          />
+                        </div>
+
+                        <div>
+                          <label class="block text-xs font-medium text-slate-300">
+                            Gateway Predefinito
+                          </label>
+                          <input
+                            type="text"
+                            [(ngModel)]="netForm.gateway"
+                            placeholder="es. 192.168.1.1"
+                            class="mt-1 w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2 font-mono text-xs text-white focus:border-[#38bdf8] focus:outline-none"
+                          />
+                        </div>
+
+                        <div>
+                          <label class="block text-xs font-medium text-slate-300">
+                            Server DNS (separati da virgola)
+                          </label>
+                          <input
+                            type="text"
+                            [(ngModel)]="netForm.dns"
+                            placeholder="es. 1.1.1.1, 8.8.8.8"
+                            class="mt-1 w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2 font-mono text-xs text-white focus:border-[#38bdf8] focus:outline-none"
+                          />
+                        </div>
+                      </div>
+                    }
+
+                    <div class="flex flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-3">
+                      <p class="text-[11px] text-amber-300/90">
+                        Attenzione: se cambi l'IP della scheda su cui sei collegato, la pagina potrebbe perdere temporaneamente la connessione.
+                      </p>
+                      <button
+                        type="button"
+                        (click)="saveNetworkConfig()"
+                        [disabled]="savingNetwork()"
+                        class="rounded-xl bg-[#00ff88] px-5 py-2 text-xs font-semibold text-[#062417] hover:brightness-110 disabled:opacity-50"
+                      >
+                        {{ savingNetwork() ? 'Applicazione in corso...' : 'Applica Configurazione Rete' }}
+                      </button>
+                    </div>
+
+                    @if (networkFeedback()) {
+                      <div
+                        class="rounded-xl border px-3.5 py-2.5 text-xs"
+                        [ngClass]="
+                          networkFeedbackOk()
+                            ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200'
+                            : 'border-rose-500/30 bg-rose-500/10 text-rose-200'
+                        "
+                      >
+                        <div>{{ networkFeedback() }}</div>
+                        @if (redirectIpUrl()) {
+                          <a
+                            [href]="redirectIpUrl()"
+                            class="mt-1.5 inline-block font-semibold text-[#38bdf8] underline"
+                          >
+                            Apri SiloOs al nuovo indirizzo ({{ redirectIpUrl() }}) →
+                          </a>
+                        }
                       </div>
                     }
                   </div>
                 }
-              </div>
+              }
             </div>
           </div>
         }
@@ -635,6 +834,28 @@ export class SettingsAppComponent implements OnInit {
   testingAi = signal(false);
   aiTestResult = signal<string | null>(null);
   network = signal<NasSettingsResponse['network']>([]);
+  physicalInterfaces = signal<NetworkInterfaceConfig[]>([]);
+  selectedIfaceName = signal<string>('');
+  loadingNetwork = signal(false);
+  savingNetwork = signal(false);
+  networkFeedback = signal<string | null>(null);
+  networkFeedbackOk = signal(true);
+  redirectIpUrl = signal<string | null>(null);
+
+  netForm: {
+    method: 'auto' | 'manual';
+    ip: string;
+    netmask: string;
+    gateway: string;
+    dns: string;
+  } = {
+    method: 'auto',
+    ip: '',
+    netmask: '255.255.255.0',
+    gateway: '',
+    dns: '1.1.1.1, 8.8.8.8',
+  };
+
   feedback = signal<string | null>(null);
   feedbackOk = signal(true);
 
@@ -730,6 +951,102 @@ export class SettingsAppComponent implements OnInit {
       },
       error: () => { },
     });
+    this.loadPhysicalInterfaces();
+  }
+
+  prefixToNetmask(prefix: number): string {
+    const p = Math.max(0, Math.min(32, Math.floor(prefix || 24)));
+    const mask = p === 0 ? 0 : (~0 << (32 - p)) >>> 0;
+    return [
+      (mask >>> 24) & 255,
+      (mask >>> 16) & 255,
+      (mask >>> 8) & 255,
+      mask & 255,
+    ].join('.');
+  }
+
+  loadPhysicalInterfaces(): void {
+    this.loadingNetwork.set(true);
+    this.api.getNetworkInterfaces().subscribe({
+      next: (res) => {
+        this.loadingNetwork.set(false);
+        this.physicalInterfaces.set(res.interfaces);
+        const currentSelected = this.selectedIfaceName();
+        const found =
+          res.interfaces.find((i) => i.name === currentSelected) ??
+          res.interfaces.find((i) => i.state.startsWith('connected')) ??
+          res.interfaces[0];
+        if (found) {
+          this.selectNetworkInterface(found, false);
+        }
+      },
+      error: () => {
+        this.loadingNetwork.set(false);
+      },
+    });
+  }
+
+  selectNetworkInterface(iface: NetworkInterfaceConfig, clearFeedback = true): void {
+    this.selectedIfaceName.set(iface.name);
+    if (clearFeedback) {
+      this.networkFeedback.set(null);
+      this.redirectIpUrl.set(null);
+    }
+    this.netForm = {
+      method: iface.method,
+      ip: iface.ip || iface.activeIp || '',
+      netmask: this.prefixToNetmask(iface.prefix || iface.activePrefix || 24),
+      gateway: iface.gateway || iface.activeGateway || '',
+      dns: (iface.dns.length > 0 ? iface.dns : iface.activeDns).join(', '),
+    };
+  }
+
+  saveNetworkConfig(): void {
+    const iface = this.selectedIfaceName();
+    if (!iface) return;
+
+    this.savingNetwork.set(true);
+    this.networkFeedback.set(null);
+    this.redirectIpUrl.set(null);
+
+    const dnsArray = this.netForm.dns
+      .split(/[,;\s]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    this.api
+      .saveNetworkInterface(iface, {
+        method: this.netForm.method,
+        ip: this.netForm.method === 'manual' ? this.netForm.ip.trim() : undefined,
+        netmask: this.netForm.method === 'manual' ? this.netForm.netmask.trim() : undefined,
+        gateway: this.netForm.method === 'manual' ? this.netForm.gateway.trim() : undefined,
+        dns: this.netForm.method === 'manual' ? dnsArray : undefined,
+      })
+      .subscribe({
+        next: (res) => {
+          this.savingNetwork.set(false);
+          this.networkFeedbackOk.set(true);
+          if (res.method === 'manual' && res.ip) {
+            this.networkFeedback.set(
+              `Configurazione statica applicata su ${res.iface} (${res.ip}/${res.prefix}).`
+            );
+            if (res.ip !== window.location.hostname) {
+              const port = window.location.port ? `:${window.location.port}` : '';
+              this.redirectIpUrl.set(`${window.location.protocol}//${res.ip}${port}`);
+            }
+          } else {
+            this.networkFeedback.set(`Modalità DHCP ripristinata su ${res.iface}.`);
+          }
+          setTimeout(() => this.loadPhysicalInterfaces(), 2200);
+        },
+        error: (err) => {
+          this.savingNetwork.set(false);
+          this.networkFeedbackOk.set(false);
+          this.networkFeedback.set(
+            err?.error?.error ?? 'Errore durante il salvataggio della configurazione di rete'
+          );
+        },
+      });
   }
 
   applyPreset(id: AiSettingsView['providerType']): void {
@@ -927,10 +1244,14 @@ export class SettingsAppComponent implements OnInit {
           if (prog.state === 'done') {
             if (sawDoneOrRestart) {
               clearInterval(timer);
-              this.updatingSystem.set(false);
-              window.location.reload();
+              this.updateStage.set('✓ Aggiornamento completato! Ricaricamento pagina...');
+              setTimeout(() => {
+                this.updatingSystem.set(false);
+                window.location.href = window.location.pathname;
+              }, 1200);
             } else {
               sawDoneOrRestart = true;
+              this.updateStage.set('Riavvio servizi SiloOs in corso...');
             }
           }
         },
@@ -940,10 +1261,13 @@ export class SettingsAppComponent implements OnInit {
           this.api.checkHealth().subscribe({
             next: () => {
               clearInterval(timer);
-              this.updatingSystem.set(false);
-              window.location.reload();
+              this.updateStage.set('✓ Servizi riavviati! Ricaricamento pagina...');
+              setTimeout(() => {
+                this.updatingSystem.set(false);
+                window.location.href = window.location.pathname;
+              }, 1200);
             },
-            error: () => { },
+            error: () => {},
           });
         },
       });

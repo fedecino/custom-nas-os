@@ -2,6 +2,7 @@ import { Component, OnInit, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ApiService, NasUser } from '../../services/api.service';
+import { DialogService } from '../../services/dialog.service';
 
 @Component({
   selector: 'app-users-manager',
@@ -188,6 +189,7 @@ export class UsersManagerComponent implements OnInit {
 
   users = signal<NasUser[]>([]);
   feedback = signal<string | null>(null);
+  private readonly dialog = inject(DialogService);
   feedbackOk = signal(true);
 
   passwordModalUser = signal<string | null>(null);
@@ -268,8 +270,12 @@ export class UsersManagerComponent implements OnInit {
     });
   }
 
-  deleteUser(username: string): void {
-    if (!confirm(`Eliminare l'utente "${username}" e la sua home directory?`)) return;
+  async deleteUser(username: string): Promise<void> {
+    const confirmed = await this.dialog.confirm(
+      `Eliminare l'utente "${username}" e la sua home directory?`,
+      { title: 'Elimina Utente', confirmText: 'Elimina', danger: true }
+    );
+    if (!confirmed) return;
     this.api.deleteUser(username).subscribe({
       next: () => {
         this.feedbackOk.set(true);

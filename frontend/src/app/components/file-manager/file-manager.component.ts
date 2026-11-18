@@ -10,6 +10,7 @@ import {
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ApiService, FileEntry, MountedDisk } from '../../services/api.service';
+import { DialogService } from '../../services/dialog.service';
 
 interface ContextMenuState {
   x: number;
@@ -368,7 +369,7 @@ interface ContextMenuState {
               </div>
               @if (shareForm.smb) {
                 <div class="text-slate-200">
-                  <span class="text-[#38bdf8]">SMB:</span> \\{{ currentHost() }}\{{ shareForm.name || '...' }}
+                  <span class="text-[#38bdf8]">SMB:</span> \\\\{{ currentHost() }}\\{{ shareForm.name || '...' }}
                 </div>
               }
               @if (shareForm.nfs) {
@@ -419,6 +420,7 @@ export class FileManagerComponent implements OnInit {
   @ViewChild('fileInput') fileInput?: ElementRef<HTMLInputElement>;
 
   currentPath = signal('/DATA');
+  private readonly dialog = inject(DialogService);
   parentPath = signal<string | null>('/');
   items = signal<FileEntry[]>([]);
   mountedDisks = signal<MountedDisk[]>([]);
@@ -512,8 +514,12 @@ export class FileManagerComponent implements OnInit {
     });
   }
 
-  promptCreateFolder(): void {
-    const name = prompt('Nome nuova cartella:');
+  async promptCreateFolder(): Promise<void> {
+    const name = await this.dialog.prompt('Inserisci il nome della nuova cartella:', {
+      title: 'Nuova Cartella',
+      placeholder: 'es. Documenti',
+      confirmText: 'Crea Cartella',
+    });
     if (!name || !name.trim()) return;
     this.api.createFileFolder(this.currentPath(), name.trim()).subscribe({
       next: () => {
@@ -528,8 +534,12 @@ export class FileManagerComponent implements OnInit {
     });
   }
 
-  promptCreateFile(): void {
-    const name = prompt('Nome nuovo file (es. note.txt):');
+  async promptCreateFile(): Promise<void> {
+    const name = await this.dialog.prompt('Inserisci il nome del nuovo file:', {
+      title: 'Nuovo File',
+      placeholder: 'es. note.txt',
+      confirmText: 'Crea File',
+    });
     if (!name || !name.trim()) return;
     this.api.createEmptyFile(this.currentPath(), name.trim()).subscribe({
       next: () => {
@@ -548,8 +558,12 @@ export class FileManagerComponent implements OnInit {
     this.fileInput?.nativeElement.click();
   }
 
-  renameItem(item: FileEntry): void {
-    const newName = prompt(`Nuovo nome per "${item.name}":`, item.name);
+  async renameItem(item: FileEntry): Promise<void> {
+    const newName = await this.dialog.prompt(`Nuovo nome per "${item.name}":`, {
+      title: 'Rinomina',
+      defaultValue: item.name,
+      confirmText: 'Rinomina',
+    });
     if (!newName || !newName.trim() || newName.trim() === item.name) return;
     this.api.renameFileOrFolder(item.path, newName.trim()).subscribe({
       next: () => {
@@ -564,9 +578,14 @@ export class FileManagerComponent implements OnInit {
     });
   }
 
-  deleteItem(item: FileEntry): void {
+  async deleteItem(item: FileEntry): Promise<void> {
     const kind = item.isDirectory ? 'la cartella e tutto il suo contenuto' : 'il file';
-    if (!confirm(`Eliminare ${kind} "${item.name}"?`)) return;
+    const confirmed = await this.dialog.confirm(`Eliminare ${kind} "${item.name}"?`, {
+      title: 'Conferma eliminazione',
+      confirmText: 'Elimina',
+      danger: true,
+    });
+    if (!confirmed) return;
     this.api.deleteFileOrFolder(item.path).subscribe({
       next: () => {
         this.feedbackOk.set(true);

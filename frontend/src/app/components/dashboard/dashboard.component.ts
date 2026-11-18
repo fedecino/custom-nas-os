@@ -14,6 +14,7 @@ import {
   StackInfo,
   SystemInfo,
 } from '../../services/api.service';
+import { DialogService } from '../../services/dialog.service';
 
 @Component({
   selector: 'app-dashboard',
@@ -411,6 +412,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
   @Output() viewLogs = new EventEmitter<string>();
 
   systemInfo = signal<SystemInfo | null>(null);
+  private readonly dialog = inject(DialogService);
   stacks = signal<StackInfo[]>([]);
   standaloneContainers = signal<ContainerInfo[]>([]);
   loading = signal(false);
@@ -464,12 +466,13 @@ export class DashboardComponent implements OnInit, OnDestroy {
     return stackTotal + this.standaloneContainers().length;
   }
 
-  runAction(stackName: string, action: 'start' | 'stop' | 'restart' | 'remove'): void {
-    if (
-      action === 'remove' &&
-      !confirm(`Rimuovere lo stack "${stackName}" e fermare i suoi container?`)
-    ) {
-      return;
+  async runAction(stackName: string, action: 'start' | 'stop' | 'restart' | 'remove'): Promise<void> {
+    if (action === 'remove') {
+      const confirmed = await this.dialog.confirm(
+        `Rimuovere lo stack "${stackName}" e fermare i suoi container?`,
+        { title: 'Rimuovi Stack', confirmText: 'Rimuovi', danger: true }
+      );
+      if (!confirmed) return;
     }
 
     this.busyStack.set(stackName);

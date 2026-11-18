@@ -218,6 +218,27 @@ export interface ProxyRoute {
   stripPrefix: boolean;
 }
 
+export interface NetworkInterfaceConfig {
+  name: string;
+  type: 'ethernet' | 'wifi';
+  state: string;
+  mac: string;
+  speedMbps: number | null;
+  carrier: boolean;
+  connectionName: string | null;
+  connectionUuid: string | null;
+  method: 'auto' | 'manual';
+  ip: string;
+  prefix: number;
+  gateway: string;
+  dns: string[];
+  activeIp: string;
+  activePrefix: number;
+  activeGateway: string;
+  activeDns: string[];
+  addresses: Array<{ family: string; address: string; mac: string }>;
+}
+
 export interface AiChatMessage {
   role: 'user' | 'assistant';
   content: string;
@@ -568,6 +589,40 @@ export class ApiService {
       '/api/settings',
       payload
     );
+  }
+
+  getNetworkInterfaces(): Observable<{ interfaces: NetworkInterfaceConfig[] }> {
+    return this.http.get<{ interfaces: NetworkInterfaceConfig[] }>('/api/settings/network');
+  }
+
+  saveNetworkInterface(
+    iface: string,
+    payload: {
+      method: 'auto' | 'manual';
+      ip?: string;
+      prefix?: number;
+      netmask?: string;
+      gateway?: string;
+      dns?: string[];
+    }
+  ): Observable<{
+    success: boolean;
+    iface: string;
+    method: 'auto' | 'manual';
+    ip: string | null;
+    prefix: number;
+    gateway: string;
+    dns: string[];
+  }> {
+    return this.http.put<{
+      success: boolean;
+      iface: string;
+      method: 'auto' | 'manual';
+      ip: string | null;
+      prefix: number;
+      gateway: string;
+      dns: string[];
+    }>(`/api/settings/network/${encodeURIComponent(iface)}`, payload);
   }
 
   testAiConnection(payload: {
