@@ -91,6 +91,7 @@ cp "${SCRIPT_DIR}/../system/systemd/nas-os-banner.service" config/includes.chroo
 cp "${SCRIPT_DIR}/../system/scripts/nas-os-banner.sh" config/includes.chroot/usr/local/bin/nas-os-banner.sh
 cp "${SCRIPT_DIR}/../system/scripts/nas-os-install.sh" config/includes.chroot/usr/local/sbin/nas-os-install
 cp "${SCRIPT_DIR}/../system/scripts/nas-os-usb-mount.sh" config/includes.chroot/usr/local/sbin/nas-os-usb-mount
+cp "${SCRIPT_DIR}/../system/scripts/nas-os-update.sh" config/includes.chroot/usr/local/sbin/nas-os-update
 cp "${SCRIPT_DIR}/../system/udev/99-nas-os-usb-automount.rules" config/includes.chroot/etc/udev/rules.d/99-nas-os-usb-automount.rules
 cp "${SCRIPT_DIR}/../system/scripts/99-nas-os-banner" config/includes.chroot/etc/NetworkManager/dispatcher.d/99-nas-os-banner
 

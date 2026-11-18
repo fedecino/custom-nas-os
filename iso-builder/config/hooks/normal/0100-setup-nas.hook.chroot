@@ -28,6 +28,7 @@ echo "[NAS-OS Hook] Configuring console welcome & Wi-Fi banner..."
 chmod +x /usr/local/bin/nas-os-banner.sh || true
 chmod +x /usr/local/sbin/nas-os-install || true
 chmod +x /usr/local/sbin/nas-os-usb-mount || true
+chmod +x /usr/local/sbin/nas-os-update || true
 chmod +x /etc/NetworkManager/dispatcher.d/99-nas-os-banner || true
 
 echo "[NAS-OS Hook] Enabling systemd services..."

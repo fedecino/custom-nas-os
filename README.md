@@ -89,3 +89,19 @@ nas-os-debian13-amd64.iso
    ```text
    http://<IP-DEL-NAS>/
    ```
+
+---
+
+## 4. Aggiornamento di un NAS già installato (da GitHub)
+
+Per aggiornare NAS-OS alle ultime modifiche senza reinstallare la ISO e senza toccare `/DATA`, i container Docker o le condivisioni:
+
+- **Prima volta** (passando l'URL del tuo repository GitHub):
+  ```bash
+  sudo apt-get update && sudo apt-get install -y git
+  sudo nas-os-update https://github.com/<tuo-utente>/<tua-repo>.git
+  ```
+- **Aggiornamenti successivi** (usa già il repository clonato in `/opt/nas-os/src`):
+  ```bash
+  sudo nas-os-update
+  ```
