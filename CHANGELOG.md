@@ -1,3 +1,13 @@
+## [1.2.0](https://github.com/fedecino/custom-nas-os/compare/v1.1.1...v1.2.0) (2026-11-18)
+
+### Features
+
+* ISO release ([cef0388](https://github.com/fedecino/custom-nas-os/commit/cef03885cab339f17129e1c5f23e3e4c996bc07e))
+
+### Bug Fixes
+
+* docker button restart/stop instead of Install/start when it is just installed ([143eb2a](https://github.com/fedecino/custom-nas-os/commit/143eb2ae54c2f01684d197ee12dcb24e5a3e0ea8))
+
 ## [1.1.1](https://github.com/fedecino/custom-nas-os/compare/v1.1.0...v1.1.1) (2026-11-18)
 
 ### Bug Fixes
