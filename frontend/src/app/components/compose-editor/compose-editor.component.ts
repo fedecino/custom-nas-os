@@ -102,24 +102,52 @@ export interface LogLine {
             <button
               type="button"
               (click)="validateYaml()"
-              [disabled]="deploying()"
+              [disabled]="deploying() || actionBusy()"
               class="rounded-lg border border-slate-700 bg-slate-800 px-3.5 py-1.5 text-xs font-medium text-slate-200 transition hover:bg-slate-700 disabled:opacity-50"
             >
               Valida YAML
             </button>
-            <button
-              type="button"
-              (click)="deploy()"
-              [disabled]="deploying() || !stackName.trim()"
-              class="inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-4 py-1.5 text-xs font-semibold text-slate-950 transition hover:bg-emerald-400 disabled:opacity-50"
-            >
-              @if (deploying()) {
-                <span class="h-3.5 w-3.5 animate-spin rounded-full border-2 border-slate-950 border-t-transparent"></span>
-                <span>Deploy in corso...</span>
-              } @else {
-                <span>Installa / Avvia</span>
-              }
-            </button>
+
+            @if (isInstalled()) {
+              <button
+                type="button"
+                (click)="runContainerAction('stop')"
+                [disabled]="deploying() || actionBusy() || !stackName.trim()"
+                class="rounded-lg bg-amber-500/20 px-3.5 py-1.5 text-xs font-semibold text-amber-300 transition hover:bg-amber-500/30 disabled:opacity-50"
+              >
+                Stop
+              </button>
+              <button
+                type="button"
+                (click)="runContainerAction('restart')"
+                [disabled]="deploying() || actionBusy() || !stackName.trim()"
+                class="rounded-lg bg-sky-500/20 px-3.5 py-1.5 text-xs font-semibold text-sky-300 transition hover:bg-sky-500/30 disabled:opacity-50"
+              >
+                Riavvia
+              </button>
+              <button
+                type="button"
+                (click)="deploy()"
+                [disabled]="deploying() || actionBusy() || !stackName.trim()"
+                class="rounded-lg bg-emerald-500 px-3.5 py-1.5 text-xs font-semibold text-slate-950 transition hover:bg-emerald-400 disabled:opacity-50"
+              >
+                Applica YAML
+              </button>
+            } @else {
+              <button
+                type="button"
+                (click)="deploy()"
+                [disabled]="deploying() || !stackName.trim()"
+                class="inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-4 py-1.5 text-xs font-semibold text-slate-950 transition hover:bg-emerald-400 disabled:opacity-50"
+              >
+                @if (deploying()) {
+                  <span class="h-3.5 w-3.5 animate-spin rounded-full border-2 border-slate-950 border-t-transparent"></span>
+                  <span>Deploy in corso...</span>
+                } @else {
+                  <span>Installa / Avvia</span>
+                }
+              </button>
+            }
           </div>
         </div>
 
@@ -206,6 +234,7 @@ export class ComposeEditorComponent implements AfterViewInit, OnDestroy {
   @ViewChild('logContainer') logContainer?: ElementRef<HTMLDivElement>;
 
   deploying = signal(false);
+  actionBusy = signal(false);
   deployStatus = signal<'idle' | 'running' | 'success' | 'error'>('idle');
   logs = signal<LogLine[]>([]);
   validationMessage = signal<string | null>(null);
@@ -238,6 +267,31 @@ export class ComposeEditorComponent implements AfterViewInit, OnDestroy {
 
   objectKeys(obj: Record<string, string>): string[] {
     return Object.keys(obj);
+  }
+
+  isInstalled(): boolean {
+    return this.lockStackName || this.deployStatus() === 'success';
+  }
+
+  runContainerAction(act: 'stop' | 'restart'): void {
+    const name = this.stackName.trim();
+    if (!name) return;
+    this.actionBusy.set(true);
+    this.appendLog(`Esecuzione "${act}" sullo stack "${name}"...`, 'info');
+    this.api.stackAction(name, act).subscribe({
+      next: () => {
+        this.actionBusy.set(false);
+        this.appendLog(`Azione "${act}" completata con successo!`, 'info');
+        this.deployed.emit(name);
+      },
+      error: (err) => {
+        this.actionBusy.set(false);
+        this.appendLog(
+          `ERRORE (${act}): ${err?.error?.error ?? 'Operazione fallita'}`,
+          'stderr'
+        );
+      },
+    });
   }
 
   validateYaml(): void {

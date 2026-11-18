@@ -1,6 +1,7 @@
 import {
   Component,
   EventEmitter,
+  Input,
   Output,
   inject,
   signal,
@@ -12,6 +13,7 @@ import {
   HubSearchResult,
   HubTagResult,
   InspectedImage,
+  StackInfo,
 } from '../../services/api.service';
 
 @Component({
@@ -92,13 +94,22 @@ import {
                   <h3 class="break-all font-semibold text-white">
                     {{ repo.name }}
                   </h3>
-                  @if (repo.isOfficial) {
-                    <span
-                      class="shrink-0 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase text-emerald-300"
-                    >
-                      Official
-                    </span>
-                  }
+                  <div class="flex shrink-0 items-center gap-1.5">
+                    @if (findInstalledStack(repo.name)) {
+                      <span
+                        class="rounded-full bg-sky-500/20 px-2 py-0.5 text-[10px] font-semibold uppercase text-sky-300"
+                      >
+                        Installata
+                      </span>
+                    }
+                    @if (repo.isOfficial) {
+                      <span
+                        class="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase text-emerald-300"
+                      >
+                        Official
+                      </span>
+                    }
+                  </div>
                 </div>
                 <p class="mt-2 line-clamp-3 text-xs leading-relaxed text-slate-400">
                   {{ repo.description || 'Nessuna descrizione disponibile su Docker Hub.' }}
@@ -110,13 +121,23 @@ import {
                   <span>★ {{ formatNumber(repo.starCount) }}</span>
                   <span>↓ {{ formatNumber(repo.pullCount) }} pulls</span>
                 </div>
-                <button
-                  type="button"
-                  (click)="selectRepo(repo)"
-                  class="mt-3 w-full rounded-xl border border-sky-500/40 bg-sky-500/15 py-2 text-xs font-semibold text-sky-300 transition hover:bg-sky-500 hover:text-slate-950"
-                >
-                  Seleziona Tag & Configura
-                </button>
+                @if (findInstalledStack(repo.name); as existing) {
+                  <button
+                    type="button"
+                    (click)="openExisting.emit(existing.name)"
+                    class="mt-3 w-full rounded-xl border border-emerald-500/40 bg-emerald-500/15 py-2 text-xs font-semibold text-emerald-300 transition hover:bg-emerald-500 hover:text-slate-950"
+                  >
+                    Gestisci Container ({{ existing.name }})
+                  </button>
+                } @else {
+                  <button
+                    type="button"
+                    (click)="selectRepo(repo)"
+                    class="mt-3 w-full rounded-xl border border-sky-500/40 bg-sky-500/15 py-2 text-xs font-semibold text-sky-300 transition hover:bg-sky-500 hover:text-slate-950"
+                  >
+                    Seleziona Tag & Configura
+                  </button>
+                }
               </div>
             </div>
           }
@@ -235,7 +256,9 @@ import {
 export class HubSearchComponent {
   private readonly api = inject(ApiService);
 
+  @Input() installedStacks: StackInfo[] = [];
   @Output() inspected = new EventEmitter<InspectedImage>();
+  @Output() openExisting = new EventEmitter<string>();
 
   query = '';
   quickPicks = [
@@ -296,7 +319,33 @@ export class HubSearchComponent {
     });
   }
 
+  findInstalledStack(repoName: string): StackInfo | null {
+    const normalize = (img: string) =>
+      img
+        .trim()
+        .toLowerCase()
+        .replace(/^docker\.io\//, '')
+        .replace(/^library\//, '')
+        .split(':')[0];
+
+    const target = normalize(repoName);
+    for (const stack of this.installedStacks) {
+      if (
+        stack.containers.some((c) => normalize(c.image) === target) ||
+        stack.name.toLowerCase() === target.split('/').pop()
+      ) {
+        return stack;
+      }
+    }
+    return null;
+  }
+
   selectRepo(repo: HubSearchResult): void {
+    const existing = this.findInstalledStack(repo.name);
+    if (existing) {
+      this.openExisting.emit(existing.name);
+      return;
+    }
     this.selectedRepo.set(repo);
     this.tags.set([]);
     this.tagError.set(null);

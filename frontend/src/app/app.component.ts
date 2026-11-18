@@ -724,7 +724,11 @@ type ActiveWindow =
             <div class="flex-1 overflow-y-auto p-6">
               @switch (win) {
                 @case ('store') {
-                  <app-hub-search (inspected)="openInspectedEditor($event)" />
+                  <app-hub-search
+                    [installedStacks]="stacks()"
+                    (inspected)="openInspectedEditor($event)"
+                    (openExisting)="openExistingStackEditor($event)"
+                  />
                 }
                 @case ('files') {
                   <app-file-manager />
