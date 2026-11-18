@@ -30,54 +30,52 @@ type AppStoreTab = 'store' | 'compose' | 'dockerhub';
     <div class="space-y-6">
       <!-- Header & Mode Tabs -->
       <div class="rounded-2xl border border-nas-border bg-nas-card/90 p-6 shadow-lg">
-        <div class="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-          <div>
-            <h1 class="text-2xl font-semibold tracking-tight text-white">
-              App Store
-            </h1>
-            <p class="mt-1 text-sm text-slate-400">
-              Installa app pronte in 1-Click, incolla un Docker Compose personalizzato oppure cerca su Docker Hub.
-            </p>
-          </div>
+        <div>
+          <h1 class="text-2xl font-semibold tracking-tight text-white">
+            App Store
+          </h1>
+          <p class="mt-1 text-sm text-slate-400">
+            Installa app pronte in 1-Click, incolla un Docker Compose personalizzato oppure cerca su Docker Hub.
+          </p>
+        </div>
 
-          <div class="inline-flex flex-wrap rounded-xl border border-white/10 bg-slate-950/70 p-1 text-xs">
-            <button
-              type="button"
-              (click)="activeTab.set('store')"
-              class="rounded-lg px-3.5 py-2 font-medium transition"
-              [ngClass]="
-                activeTab() === 'store'
-                  ? 'bg-[#38bdf8] text-[#090e1a] font-semibold'
-                  : 'text-slate-300 hover:text-white'
-              "
-            >
-              🛍️ App Store
-            </button>
-            <button
-              type="button"
-              (click)="activeTab.set('compose')"
-              class="rounded-lg px-3.5 py-2 font-medium transition"
-              [ngClass]="
-                activeTab() === 'compose'
-                  ? 'bg-[#38bdf8] text-[#090e1a] font-semibold'
-                  : 'text-slate-300 hover:text-white'
-              "
-            >
-              📄 Docker Compose
-            </button>
-            <button
-              type="button"
-              (click)="activeTab.set('dockerhub')"
-              class="rounded-lg px-3.5 py-2 font-medium transition"
-              [ngClass]="
-                activeTab() === 'dockerhub'
-                  ? 'bg-[#38bdf8] text-[#090e1a] font-semibold'
-                  : 'text-slate-300 hover:text-white'
-              "
-            >
-              🐳 Avanzate / Docker Hub
-            </button>
-          </div>
+        <div class="mt-5 flex items-center gap-2 overflow-x-auto border-b border-white/10 pb-0 text-xs">
+          <button
+            type="button"
+            (click)="activeTab.set('store')"
+            class="whitespace-nowrap border-b-2 px-4 py-2.5 font-medium transition"
+            [ngClass]="
+              activeTab() === 'store'
+                ? 'border-[#38bdf8] text-[#38bdf8] font-semibold'
+                : 'border-transparent text-slate-400 hover:text-white'
+            "
+          >
+            🛍️ App Store
+          </button>
+          <button
+            type="button"
+            (click)="activeTab.set('compose')"
+            class="whitespace-nowrap border-b-2 px-4 py-2.5 font-medium transition"
+            [ngClass]="
+              activeTab() === 'compose'
+                ? 'border-[#38bdf8] text-[#38bdf8] font-semibold'
+                : 'border-transparent text-slate-400 hover:text-white'
+            "
+          >
+            📄 Docker Compose
+          </button>
+          <button
+            type="button"
+            (click)="activeTab.set('dockerhub')"
+            class="whitespace-nowrap border-b-2 px-4 py-2.5 font-medium transition"
+            [ngClass]="
+              activeTab() === 'dockerhub'
+                ? 'border-[#38bdf8] text-[#38bdf8] font-semibold'
+                : 'border-transparent text-slate-400 hover:text-white'
+            "
+          >
+            🐳 Avanzate / Docker Hub
+          </button>
         </div>
 
         @if (activeTab() === 'store') {

@@ -44,6 +44,7 @@ export async function setSambaPassword(username: string, password: string): Prom
       else reject(new Error(`smbpasswd exited with code ${code}`));
     });
   });
+  await execFileAsync('smbpasswd', ['-e', username], { timeout: 5000 }).catch(() => {});
 }
 
 async function getSambaUsers(): Promise<Set<string>> {

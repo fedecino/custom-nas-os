@@ -1,15 +1,21 @@
+import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { promisify } from 'node:util';
 import { Router, Request, Response } from 'express';
-import { readFullSettings } from './settings.js';
+import { isUserAdmin, readFullSettings } from './settings.js';
 import {
   DATA_DIR,
+  STACKS_DIR,
   deployStack,
   listStacks,
   runStackAction,
+  validateComposeYaml,
+  validateStackName,
 } from '../services/docker.js';
 import { inspectImage, searchRepositories } from '../services/registry.js';
 
+const execFileAsync = promisify(execFile);
 const router = Router();
 const LOCAL_PORT = Number(process.env.PORT ?? 3000);
 const AI_CHATS_FILE = path.join(DATA_DIR, '.nas-os', 'ai-chats.json');
@@ -52,7 +58,22 @@ interface ChatMessage {
   }>;
 }
 
-const NAS_TOOLS = [
+function resolveDockerAllowedPath(rawPath: string): string {
+  const cleaned = String(rawPath ?? '').trim();
+  const candidate = path.isAbsolute(cleaned)
+    ? path.resolve(cleaned)
+    : path.resolve(DATA_DIR, cleaned);
+  const stacksRoot = path.resolve(STACKS_DIR);
+  const appDataRoot = path.resolve(path.join(DATA_DIR, 'AppData'));
+  const inStacks = candidate === stacksRoot || candidate.startsWith(`${stacksRoot}/`);
+  const inAppData = candidate === appDataRoot || candidate.startsWith(`${appDataRoot}/`);
+  if (!inStacks && !inAppData) {
+    throw new Error('Percorso consentito solo dentro /DATA/Stacks o /DATA/AppData');
+  }
+  return candidate;
+}
+
+const READ_TOOLS = [
   {
     type: 'function',
     function: {
@@ -69,6 +90,130 @@ const NAS_TOOLS = [
       description:
         'Elenca tutti gli stack Docker Compose e i container installati sul NAS con il loro stato.',
       parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'read_docker_compose',
+      description: 'Legge il file docker-compose.yml di uno stack Docker installato.',
+      parameters: {
+        type: 'object',
+        properties: {
+          stackName: { type: 'string', description: 'Nome dello stack Docker' },
+        },
+        required: ['stackName'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_docker_logs',
+      description: 'Legge gli ultimi log di uno stack Docker per diagnosticare errori.',
+      parameters: {
+        type: 'object',
+        properties: {
+          stackName: { type: 'string', description: 'Nome dello stack Docker' },
+          tail: { type: 'number', description: 'Numero di righe (default 80)' },
+        },
+        required: ['stackName'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'read_docker_app_file',
+      description:
+        'Legge un file di configurazione o .env dentro /DATA/Stacks o /DATA/AppData.',
+      parameters: {
+        type: 'object',
+        properties: {
+          filePath: {
+            type: 'string',
+            description: 'Percorso assoluto dentro /DATA/Stacks o /DATA/AppData',
+          },
+        },
+        required: ['filePath'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'search_docker_hub',
+      description: 'Cerca immagini Docker su Docker Hub.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Termine di ricerca (es. nginx, jellyfin)' },
+        },
+        required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'list_disks',
+      description: 'Elenca dischi fisici, partizioni (lsblk) e volumi montati.',
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'list_shares_and_services',
+      description:
+        'Elenca le condivisioni SMB/NFS/FTP configurate e lo stato dei servizi smbd, nfs-kernel-server, vsftpd, ssh.',
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'list_users',
+      description: 'Elenca gli utenti NAS/Linux di sistema.',
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+];
+
+const ADMIN_WRITE_TOOLS = [
+  {
+    type: 'function',
+    function: {
+      name: 'write_docker_compose',
+      description:
+        'Modifica il docker-compose.yml di uno stack Docker e lo riavvia/rideploya (solo Admin).',
+      parameters: {
+        type: 'object',
+        properties: {
+          stackName: { type: 'string', description: 'Nome dello stack Docker' },
+          yamlContent: { type: 'string', description: 'Contenuto YAML completo e valido' },
+        },
+        required: ['stackName', 'yamlContent'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'write_docker_app_file',
+      description:
+        'Scrive o aggiorna un file di configurazione (.env, .conf, .yml, .json) dentro /DATA/Stacks o /DATA/AppData (solo Admin).',
+      parameters: {
+        type: 'object',
+        properties: {
+          filePath: {
+            type: 'string',
+            description: 'Percorso assoluto dentro /DATA/Stacks o /DATA/AppData',
+          },
+          content: { type: 'string', description: 'Nuovo contenuto del file' },
+        },
+        required: ['filePath', 'content'],
+      },
     },
   },
   {
@@ -93,20 +238,6 @@ const NAS_TOOLS = [
   {
     type: 'function',
     function: {
-      name: 'search_docker_hub',
-      description: 'Cerca immagini Docker su Docker Hub.',
-      parameters: {
-        type: 'object',
-        properties: {
-          query: { type: 'string', description: 'Termine di ricerca (es. nginx, jellyfin)' },
-        },
-        required: ['query'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
       name: 'deploy_docker_app',
       description:
         'Ispeziona un immagine Docker Hub e la installa/avvia automaticamente come stack Docker Compose.',
@@ -119,23 +250,6 @@ const NAS_TOOLS = [
         },
         required: ['image'],
       },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'list_disks',
-      description: 'Elenca dischi fisici, partizioni (lsblk) e volumi montati.',
-      parameters: { type: 'object', properties: {} },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'list_shares_and_services',
-      description:
-        'Elenca le condivisioni SMB/NFS/FTP configurate e lo stato dei servizi smbd, nfs-kernel-server, vsftpd, ssh.',
-      parameters: { type: 'object', properties: {} },
     },
   },
   {
@@ -181,14 +295,6 @@ const NAS_TOOLS = [
   {
     type: 'function',
     function: {
-      name: 'list_users',
-      description: 'Elenca gli utenti NAS/Linux di sistema.',
-      parameters: { type: 'object', properties: {} },
-    },
-  },
-  {
-    type: 'function',
-    function: {
       name: 'create_user',
       description: 'Crea un nuovo utente sul NAS con accesso opzionale SMB e SSH/SFTP.',
       parameters: {
@@ -206,6 +312,8 @@ const NAS_TOOLS = [
   },
 ];
 
+const ADMIN_ONLY_TOOL_NAMES = new Set(ADMIN_WRITE_TOOLS.map((t) => t.function.name));
+
 async function localApi(path: string, method = 'GET', body?: unknown): Promise<unknown> {
   const res = await fetch(`http://127.0.0.1:${LOCAL_PORT}${path}`, {
     method,
@@ -217,13 +325,64 @@ async function localApi(path: string, method = 'GET', body?: unknown): Promise<u
 
 async function executeTool(
   name: string,
-  args: Record<string, unknown>
+  args: Record<string, unknown>,
+  isAdmin: boolean
 ): Promise<unknown> {
+  if (!isAdmin && ADMIN_ONLY_TOOL_NAMES.has(name)) {
+    return {
+      error: 'Permesso negato: solo un utente amministratore può modificare file o container Docker.',
+    };
+  }
+
   switch (name) {
     case 'get_system_status':
       return localApi('/api/system/info');
     case 'list_docker_stacks':
       return listStacks();
+    case 'read_docker_compose': {
+      const stackName = validateStackName(String(args.stackName ?? ''));
+      const composePath = path.join(STACKS_DIR, stackName, 'docker-compose.yml');
+      const yamlContent = await fs.readFile(composePath, 'utf-8');
+      return { stackName, composePath, yamlContent };
+    }
+    case 'get_docker_logs': {
+      const stackName = validateStackName(String(args.stackName ?? ''));
+      const tail = Math.min(200, Math.max(10, Number(args.tail ?? 80) || 80));
+      const composePath = path.join(STACKS_DIR, stackName, 'docker-compose.yml');
+      const { stdout, stderr } = await execFileAsync(
+        'docker',
+        ['compose', '-f', composePath, 'logs', '--no-color', '--tail', String(tail)],
+        { timeout: 8000 }
+      );
+      return { stackName, logs: (stdout + '\n' + stderr).trim() };
+    }
+    case 'read_docker_app_file': {
+      const resolved = resolveDockerAllowedPath(String(args.filePath ?? ''));
+      const content = await fs.readFile(resolved, 'utf-8');
+      return { filePath: resolved, content: content.slice(0, 16000) };
+    }
+    case 'write_docker_compose': {
+      const stackName = validateStackName(String(args.stackName ?? ''));
+      const yamlContent = String(args.yamlContent ?? '');
+      validateComposeYaml(yamlContent);
+      const logs: string[] = [];
+      const exitCode = await deployStack(stackName, yamlContent, (msg) => {
+        logs.push(msg);
+      });
+      return {
+        success: exitCode === 0,
+        exitCode,
+        stackName,
+        logs: logs.slice(-20),
+      };
+    }
+    case 'write_docker_app_file': {
+      const resolved = resolveDockerAllowedPath(String(args.filePath ?? ''));
+      const content = String(args.content ?? '');
+      await fs.mkdir(path.dirname(resolved), { recursive: true });
+      await fs.writeFile(resolved, content, 'utf-8');
+      return { success: true, filePath: resolved, bytes: Buffer.byteLength(content) };
+    }
     case 'manage_docker_stack':
       return runStackAction(
         String(args.stackName ?? ''),
@@ -275,7 +434,7 @@ async function callChatCompletion(
   apiKey: string,
   model: string,
   messages: ChatMessage[],
-  useTools: boolean,
+  tools: unknown[] | null,
   signal?: AbortSignal
 ) {
   const endpoint = `${baseUrl.replace(/\/+$/, '')}/chat/completions`;
@@ -291,8 +450,8 @@ async function callChatCompletion(
     messages,
     temperature: 0.2,
   };
-  if (useTools) {
-    payload.tools = NAS_TOOLS;
+  if (tools && tools.length > 0) {
+    payload.tools = tools;
     payload.tool_choice = 'auto';
   }
 
@@ -338,7 +497,7 @@ router.post('/test', async (req: Request, res: Response) => {
       apiKey,
       model,
       [{ role: 'user', content: 'Rispondi solo con: OK' }],
-      false
+      null
     );
 
     const reply = result.choices?.[0]?.message?.content ?? 'OK';
@@ -399,9 +558,15 @@ router.post('/chat', async (req: Request, res: Response) => {
       content: m.content,
     }));
 
+    const username = (req as Request & { user?: string }).user || 'root';
+    const isAdmin = await isUserAdmin(username);
+    const activeTools = isAdmin ? [...READ_TOOLS, ...ADMIN_WRITE_TOOLS] : READ_TOOLS;
+
     const systemPrompt: ChatMessage = {
       role: 'system',
-      content: `Sei l'assistente AI integrato di "${nasName}" (sistema operativo NAS). Puoi controllare e gestire il NAS usando gli strumenti (tools) disponibili: stato CPU/RAM/Rete/Dischi, container Docker e App Store, condivisioni SMB/NFS/FTP/SSH e utenti. Rispondi in modo chiaro, conciso e nella lingua dell'utente.`,
+      content: isAdmin
+        ? `Sei l'assistente AI integrato di "${nasName}" (sistema operativo NAS). L'utente "${username}" è AMMINISTRATORE: puoi leggere log, leggere e modificare file docker-compose.yml e file di configurazione in /DATA/Stacks o /DATA/AppData per diagnosticare e risolvere problemi dei container, oltre a gestire stack, condivisioni e utenti. Rispondi in modo chiaro, conciso e nella lingua dell'utente.`
+        : `Sei l'assistente AI integrato di "${nasName}" (sistema operativo NAS). L'utente "${username}" è un utente standard (NON amministratore): puoi solo consultare lo stato di sistema, leggere log e configurazioni in sola lettura; NON puoi modificare file, container o impostazioni. Rispondi in modo chiaro, conciso e nella lingua dell'utente.`,
     };
 
     const conversation: ChatMessage[] = [systemPrompt, ...userMessages.slice(-16)];
@@ -440,7 +605,7 @@ router.post('/chat', async (req: Request, res: Response) => {
           ai.apiKey,
           ai.model,
           conversation,
-          useTools,
+          useTools ? activeTools : null,
           abortController.signal
         );
       } catch (err) {
@@ -453,7 +618,7 @@ router.post('/chat', async (req: Request, res: Response) => {
             ai.apiKey,
             ai.model,
             conversation,
-            false,
+            null,
             abortController.signal
           );
         } else {
@@ -491,7 +656,7 @@ router.post('/chat', async (req: Request, res: Response) => {
         let toolResult: unknown;
         let ok = true;
         try {
-          toolResult = await executeTool(tc.function.name, parsedArgs);
+          toolResult = await executeTool(tc.function.name, parsedArgs, isAdmin);
         } catch (err) {
           ok = false;
           toolResult = {

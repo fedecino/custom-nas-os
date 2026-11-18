@@ -111,13 +111,38 @@ async function applySystemShareConfigs(shares: NasShare[]): Promise<{
     .join('\n\n');
 
   try {
+    // Ensure /etc/samba/smb.conf includes our managed config and uses clean auth defaults
+    const mainSmbConf = '/etc/samba/smb.conf';
+    try {
+      let smbMain = await fs.readFile(mainSmbConf, 'utf-8');
+      let changed = false;
+      const anyGuest = shares.some((s) => s.smb && s.guestOk);
+      const desiredMapToGuest = anyGuest ? 'map to guest = bad user' : 'map to guest = never';
+      if (/^\s*map to guest\s*=.*/m.test(smbMain)) {
+        const next = smbMain.replace(/^\s*map to guest\s*=.*/m, `   ${desiredMapToGuest}`);
+        if (next !== smbMain) {
+          smbMain = next;
+          changed = true;
+        }
+      }
+      if (!smbMain.includes(SAMBA_NAS_CONF)) {
+        smbMain += `\ninclude = ${SAMBA_NAS_CONF}\n`;
+        changed = true;
+      }
+      if (changed) {
+        await fs.writeFile(mainSmbConf, smbMain, 'utf-8');
+      }
+    } catch {
+      // ignore if smb.conf is not present (e.g. dev container)
+    }
+
     await fs.mkdir(SAMBA_CONF_DIR, { recursive: true });
     await fs.writeFile(
       SAMBA_NAS_CONF,
-      `# Managed by NAS-OS\n${smbBlocks}\n`,
+      `# Managed by SiloOs\n${smbBlocks}\n`,
       'utf-8'
     );
-    await execFileAsync('systemctl', ['reload-or-restart', 'smbd'], {
+    await execFileAsync('systemctl', ['restart', 'smbd'], {
       timeout: 5000,
     });
     sambaApplied = true;
