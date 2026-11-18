@@ -7,6 +7,7 @@ export interface HubSearchResult {
   pullCount: number;
   isOfficial: boolean;
   isAutomated: boolean;
+  iconUrl?: string;
 }
 
 export interface HubTagResult {
@@ -110,6 +111,7 @@ export async function searchRepositories(
       pull_count?: number;
       is_official?: boolean;
       is_automated?: boolean;
+      logo_url?: { large?: string; small?: string };
     }>;
   };
 
@@ -120,6 +122,7 @@ export async function searchRepositories(
     pullCount: item.pull_count ?? 0,
     isOfficial: Boolean(item.is_official),
     isAutomated: Boolean(item.is_automated),
+    iconUrl: item.logo_url?.large || item.logo_url?.small || undefined,
   }));
 }
 

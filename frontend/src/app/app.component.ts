@@ -29,6 +29,8 @@ import { LoginComponent } from './components/login/login.component';
 import { DialogHostComponent } from './components/dialog-host/dialog-host.component';
 import { DialogService } from './services/dialog.service';
 import { TerminalAppComponent } from './components/terminal-app/terminal-app.component';
+import { DockerIconComponent } from './components/docker-icon/docker-icon.component';
+import { describeDockerApp } from './utils/app-metadata';
 
 type ActiveWindow =
   | 'store'
@@ -62,6 +64,7 @@ type ActiveWindow =
     LoginComponent,
     DialogHostComponent,
     TerminalAppComponent,
+    DockerIconComponent,
   ],
   template: `
     @if (!authChecked()) {
@@ -637,18 +640,23 @@ type ActiveWindow =
                   <button
                     type="button"
                     (click)="openStackApp(stack)"
+                    [title]="getStackDescription(stack)"
                     class="flex h-full w-full cursor-pointer flex-col items-center justify-center"
                   >
-                    <div
-                      class="flex h-14 w-14 items-center justify-center rounded-2xl border border-[#1e293b] bg-gradient-to-br from-[#141e33] to-[#0f172a] text-lg font-bold text-[#38bdf8] shadow-lg transition group-hover:scale-105"
-                    >
-                      {{ stack.name.slice(0, 2).toUpperCase() }}
-                    </div>
+                    <app-docker-icon
+                      class="transition group-hover:scale-105"
+                      [name]="stack.name"
+                      [image]="stack.containers[0]?.image ?? ''"
+                      size="lg"
+                    />
                     <span class="mt-3 max-w-full truncate text-xs font-medium text-white">
                       {{ stack.name }}
                     </span>
+                    <span class="mt-0.5 line-clamp-2 text-[10px] leading-tight text-slate-400">
+                      {{ getStackDescription(stack) }}
+                    </span>
                     @if (getWebPort(stack); as port) {
-                      <span class="mt-0.5 font-mono text-[10px] text-[#38bdf8]/80">
+                      <span class="mt-1 font-mono text-[10px] text-[#38bdf8]/80">
                         :{{ port }} ↗
                       </span>
                     }
@@ -1268,6 +1276,10 @@ getWindowTitle(win: Exclude<ActiveWindow, null>): string {
     terminal: 'Terminale Web (Bash)',
   };
   return titles[win];
+}
+
+getStackDescription(stack: StackInfo): string {
+  return describeDockerApp(stack.name, stack.containers[0]?.image);
 }
 
 getWebPort(stack: StackInfo): string | null {

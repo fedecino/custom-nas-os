@@ -53,6 +53,7 @@ export interface HubSearchResult {
   pullCount: number;
   isOfficial: boolean;
   isAutomated: boolean;
+  iconUrl?: string;
 }
 
 export interface HubTagResult {

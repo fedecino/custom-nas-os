@@ -15,11 +15,13 @@ import {
   InspectedImage,
   StackInfo,
 } from '../../services/api.service';
+import { DockerIconComponent } from '../docker-icon/docker-icon.component';
+import { describeDockerApp } from '../../utils/app-metadata';
 
 @Component({
   selector: 'app-hub-search',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, DockerIconComponent],
   template: `
     <div class="space-y-6">
       <!-- Header & Search Bar -->
@@ -90,10 +92,18 @@ import {
               class="flex flex-col justify-between rounded-2xl border border-nas-border bg-nas-card/90 p-5 shadow transition hover:border-sky-500/50"
             >
               <div>
-                <div class="flex items-start justify-between gap-2">
-                  <h3 class="break-all font-semibold text-white">
-                    {{ repo.name }}
-                  </h3>
+                <div class="flex items-start justify-between gap-3">
+                  <div class="flex min-w-0 items-center gap-3">
+                    <app-docker-icon
+                      [name]="repo.name"
+                      [image]="repo.name"
+                      [logoUrl]="repo.iconUrl ?? ''"
+                      size="md"
+                    />
+                    <h3 class="min-w-0 break-all font-semibold text-white">
+                      {{ repo.name }}
+                    </h3>
+                  </div>
                   <div class="flex shrink-0 items-center gap-1.5">
                     @if (findInstalledStack(repo.name)) {
                       <span
@@ -112,7 +122,7 @@ import {
                   </div>
                 </div>
                 <p class="mt-2 line-clamp-3 text-xs leading-relaxed text-slate-400">
-                  {{ repo.description || 'Nessuna descrizione disponibile su Docker Hub.' }}
+                  {{ repo.description || describeApp(repo.name) }}
                 </p>
               </div>
 
@@ -407,5 +417,9 @@ export class HubSearchComponent {
     const mb = bytes / (1024 * 1024);
     if (mb >= 1024) return `${(mb / 1024).toFixed(2)} GB`;
     return `${mb.toFixed(1)} MB`;
+  }
+
+  describeApp(name: string): string {
+    return describeDockerApp(name, name, false);
   }
 }
