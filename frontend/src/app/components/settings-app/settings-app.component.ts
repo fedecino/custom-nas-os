@@ -427,14 +427,26 @@ import {
           </div>
         }
 
-        @if (updatingSystem() || updateDone()) {
-          <div class="flex items-center gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-xs text-emerald-200">
-            @if (updatingSystem()) {
-              <span class="h-5 w-5 shrink-0 animate-spin rounded-full border-2 border-emerald-400 border-t-transparent"></span>
-              <span>Aggiornamento del sistema in corso, non chiudere la pagina...</span>
-            } @else {
-              <span>✓ Aggiornamento completato! Ricaricamento interfaccia in corso...</span>
-            }
+        @if (updatingSystem()) {
+          <div
+            class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-md"
+          >
+            <div
+              class="flex w-full max-w-sm flex-col items-center rounded-3xl border border-[#1e293b] bg-[#0f172a] p-8 text-center shadow-2xl"
+            >
+              <div
+                class="h-12 w-12 animate-spin rounded-full border-4 border-[#38bdf8] border-t-transparent"
+              ></div>
+              <h4 class="mt-5 text-base font-semibold text-white">
+                Aggiornamento in corso...
+              </h4>
+              <p class="mt-2 text-xs text-slate-300">
+                {{ updateStage() || 'Aggiornamento di Debian e SiloOs in corso...' }}
+              </p>
+              <p class="mt-3 text-[11px] text-slate-500">
+                La finestra si chiuderà automaticamente al termine dell'operazione.
+              </p>
+            </div>
           </div>
         }
       </div>
@@ -481,7 +493,7 @@ export class SettingsAppComponent implements OnInit {
 
   checkingUpdates = signal(false);
   updatingSystem = signal(false);
-  updateDone = signal(false);
+  updateStage = signal('Avvio aggiornamento...');
   updateStatus = signal<SystemUpdateStatus | null>(null);
   showAuthPrompt = signal(false);
   authPassword = '';
@@ -752,25 +764,66 @@ export class SettingsAppComponent implements OnInit {
     }
   }
 
-  async startUpdate(): Promise<void> {
-    this.updatingSystem.set(true);
-    this.updateDone.set(false);
+  startUpdate(): void {
+    const pwd = this.authPassword;
+    if (!pwd) return;
     this.updateError.set(null);
 
-    try {
-      const pwd = this.authPassword;
-      this.showAuthPrompt.set(false);
-      await this.api.applySystemUpdateSse(pwd, () => {});
-      this.authPassword = '';
-      this.updateDone.set(true);
-      setTimeout(() => window.location.reload(), 3000);
-    } catch (err) {
-      this.showAuthPrompt.set(true);
-      this.updateError.set(
-        err instanceof Error ? err.message : 'Aggiornamento fallito'
-      );
-    } finally {
-      this.updatingSystem.set(false);
-    }
+    this.api.startSystemUpdate(pwd).subscribe({
+      next: () => {
+        this.authPassword = '';
+        this.showAuthPrompt.set(false);
+        this.updatingSystem.set(true);
+        this.updateStage.set('Aggiornamento pacchetti Debian e SiloOs in corso...');
+        this.pollUpdateUntilDone();
+      },
+      error: (err) => {
+        this.updateError.set(
+          err?.error?.error ?? 'Password amministratore non valida'
+        );
+      },
+    });
+  }
+
+  private pollUpdateUntilDone(): void {
+    let sawDoneOrRestart = false;
+    const timer = setInterval(() => {
+      this.api.getSystemUpdateProgress().subscribe({
+        next: (prog) => {
+          if (prog.message) this.updateStage.set(prog.message);
+
+          if (prog.state === 'error') {
+            clearInterval(timer);
+            this.updatingSystem.set(false);
+            this.feedbackOk.set(false);
+            this.feedback.set(prog.message || 'Errore durante l\'aggiornamento');
+            return;
+          }
+
+          if (prog.state === 'done') {
+            if (sawDoneOrRestart) {
+              clearInterval(timer);
+              this.updatingSystem.set(false);
+              window.location.reload();
+            } else {
+              sawDoneOrRestart = true;
+            }
+          }
+        },
+        error: () => {
+          // Backend is restarting: wait for /api/health to come back up
+          sawDoneOrRestart = true;
+          this.updateStage.set('Riavvio servizi SiloOs in corso...');
+          this.api.checkHealth().subscribe({
+            next: () => {
+              clearInterval(timer);
+              this.updatingSystem.set(false);
+              window.location.reload();
+            },
+            error: () => {},
+          });
+        },
+      });
+    }, 2500);
   }
 }

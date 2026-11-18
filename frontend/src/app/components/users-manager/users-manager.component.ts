@@ -123,6 +123,63 @@ import { ApiService, NasUser } from '../../services/api.service';
           }
         </div>
       </div>
+
+      <!-- Change Password Modal -->
+      @if (passwordModalUser(); as targetUser) {
+        <div
+          class="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm"
+        >
+          <form
+            (ngSubmit)="saveNewPassword()"
+            class="w-full max-w-sm rounded-2xl border border-white/15 bg-slate-900 p-6 shadow-2xl space-y-4"
+          >
+            <div>
+              <h4 class="text-sm font-semibold text-white">
+                Cambia Password · {{ targetUser }}
+              </h4>
+              <p class="mt-1 text-xs text-slate-400">
+                Aggiorna la password di accesso (Linux, SSH e SMB).
+              </p>
+            </div>
+
+            <input
+              type="password"
+              [(ngModel)]="newPassword"
+              name="newPassword"
+              placeholder="Nuova password (min. 4 caratteri)"
+              class="w-full rounded-xl border border-white/10 bg-black/40 px-3.5 py-2.5 text-xs text-white focus:border-sky-400 focus:outline-none"
+            />
+            <input
+              type="password"
+              [(ngModel)]="confirmNewPassword"
+              name="confirmNewPassword"
+              placeholder="Conferma nuova password"
+              class="w-full rounded-xl border border-white/10 bg-black/40 px-3.5 py-2.5 text-xs text-white focus:border-sky-400 focus:outline-none"
+            />
+
+            @if (passwordModalError()) {
+              <div class="text-xs text-rose-300">{{ passwordModalError() }}</div>
+            }
+
+            <div class="flex justify-end gap-2">
+              <button
+                type="button"
+                (click)="passwordModalUser.set(null)"
+                class="rounded-xl border border-white/10 px-4 py-2 text-xs text-slate-300 hover:bg-white/5"
+              >
+                Annulla
+              </button>
+              <button
+                type="submit"
+                [disabled]="!newPassword || newPassword.length < 4"
+                class="rounded-xl bg-sky-500 px-4 py-2 text-xs font-semibold text-slate-950 hover:bg-sky-400 disabled:opacity-50"
+              >
+                Salva Password
+              </button>
+            </div>
+          </form>
+        </div>
+      }
     </div>
   `,
 })
@@ -132,6 +189,11 @@ export class UsersManagerComponent implements OnInit {
   users = signal<NasUser[]>([]);
   feedback = signal<string | null>(null);
   feedbackOk = signal(true);
+
+  passwordModalUser = signal<string | null>(null);
+  passwordModalError = signal<string | null>(null);
+  newPassword = '';
+  confirmNewPassword = '';
 
   form = {
     username: '',
@@ -173,16 +235,35 @@ export class UsersManagerComponent implements OnInit {
   }
 
   promptPassword(username: string): void {
-    const pwd = prompt(`Nuova password per "${username}" (min 4 caratteri):`);
-    if (!pwd || pwd.length < 4) return;
-    this.api.updateUserPassword(username, pwd).subscribe({
+    this.newPassword = '';
+    this.confirmNewPassword = '';
+    this.passwordModalError.set(null);
+    this.passwordModalUser.set(username);
+  }
+
+  saveNewPassword(): void {
+    const username = this.passwordModalUser();
+    if (!username) return;
+    if (this.newPassword.length < 4) {
+      this.passwordModalError.set('La password deve avere almeno 4 caratteri.');
+      return;
+    }
+    if (this.newPassword !== this.confirmNewPassword) {
+      this.passwordModalError.set('Le password non coincidono.');
+      return;
+    }
+    this.api.updateUserPassword(username, this.newPassword).subscribe({
       next: () => {
+        this.passwordModalUser.set(null);
+        this.newPassword = '';
+        this.confirmNewPassword = '';
         this.feedbackOk.set(true);
         this.feedback.set(`Password aggiornata per "${username}"`);
       },
       error: (err) => {
-        this.feedbackOk.set(false);
-        this.feedback.set(err?.error?.error ?? 'Aggiornamento password fallito');
+        this.passwordModalError.set(
+          err?.error?.error ?? 'Aggiornamento password fallito'
+        );
       },
     });
   }

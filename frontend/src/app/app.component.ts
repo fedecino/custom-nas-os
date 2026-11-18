@@ -81,59 +81,50 @@ type ActiveWindow =
         ></div>
       </div>
 
-      <!-- Minimalist Top Icon Bar (CasaOS style) -->
+      <!-- Top Bar with Hamburger Menu on the left of SiloOs logo -->
       <header
-        class="relative z-20 flex items-center justify-between border-b border-[#1e293b] bg-[#090e1a]/75 px-5 py-2.5 backdrop-blur-md"
+        class="relative z-30 flex items-center justify-between border-b border-[#1e293b] bg-[#090e1a]/80 px-5 py-2.5 backdrop-blur-md"
       >
-        <div class="flex items-center gap-2">
+        <div class="relative flex items-center gap-3">
+          <button
+            type="button"
+            (click)="menuOpen.set(!menuOpen())"
+            title="Menu SiloOs"
+            class="flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-slate-200 transition hover:bg-white/15"
+          >
+            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+          </button>
+
           <img
             src="/siloos-icon-disco.svg"
             alt="SiloOs"
-            class="mr-1 h-7 w-7 rounded-lg shadow"
+            class="h-7 w-7 rounded-lg shadow"
           />
-          <span class="mr-2 text-sm font-bold tracking-tight text-[#f8fafc]">
+          <span class="text-sm font-bold tracking-tight text-[#f8fafc]">
             Silo<span class="text-[#38bdf8]">Os</span>
           </span>
-          <button
-            type="button"
-            (click)="activeWindow.set('users')"
-            title="Utenti & Permessi"
-            class="flex h-8 w-8 items-center justify-center rounded-lg text-slate-200 transition hover:bg-white/15"
-          >
-            👤
-          </button>
-          <button
-            type="button"
-            (click)="activeWindow.set('settings')"
-            title="Impostazioni Sistema"
-            class="flex h-8 w-8 items-center justify-center rounded-lg text-slate-200 transition hover:bg-white/15"
-          >
-            ⚙️
-          </button>
-          <button
-            type="button"
-            (click)="activeWindow.set('ai')"
-            title="AI Agent"
-            class="flex h-8 w-8 items-center justify-center rounded-lg text-slate-200 transition hover:bg-white/15"
-          >
-            🤖
-          </button>
-          <button
-            type="button"
-            (click)="activeWindow.set('services')"
-            title="Servizi & Porte"
-            class="flex h-8 w-8 items-center justify-center rounded-lg text-slate-200 transition hover:bg-white/15"
-          >
-            🔌
-          </button>
-          <button
-            type="button"
-            (click)="activeWindow.set('logs')"
-            title="Log di Sistema"
-            class="flex h-8 w-8 items-center justify-center rounded-lg text-slate-200 transition hover:bg-white/15"
-          >
-            📜
-          </button>
+
+          @if (menuOpen()) {
+            <div
+              class="absolute left-0 top-11 z-50 w-60 rounded-2xl border border-[#1e293b] bg-[#0f172a]/95 p-2 shadow-2xl backdrop-blur-xl"
+            >
+              @for (item of menuItems; track item.id) {
+                <button
+                  type="button"
+                  (click)="activeWindow.set(item.id); menuOpen.set(false)"
+                  class="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-xs text-slate-200 transition hover:bg-white/10"
+                >
+                  <span class="text-sm">{{ item.icon }}</span>
+                  <span class="font-medium">{{ item.label }}</span>
+                </button>
+              }
+            </div>
+          }
+        </div>
+
+        <div class="flex items-center gap-3 text-xs text-slate-300">
           <div class="relative">
             <button
               type="button"
@@ -144,13 +135,13 @@ type ActiveWindow =
               🔔
               @if (notifications().length > 0) {
                 <span
-                  class="absolute right-1 top-1 h-2 w-2 rounded-full bg-sky-400"
+                  class="absolute right-1 top-1 h-2 w-2 rounded-full bg-[#00ff88]"
                 ></span>
               }
             </button>
             @if (notificationsOpen()) {
               <div
-                class="absolute left-0 top-10 z-50 w-80 rounded-2xl border border-white/15 bg-slate-900/95 p-3 shadow-2xl backdrop-blur-xl"
+                class="absolute right-0 top-10 z-50 w-80 rounded-2xl border border-[#1e293b] bg-[#0f172a]/95 p-3 shadow-2xl backdrop-blur-xl"
               >
                 <div class="mb-2 flex items-center justify-between text-xs font-semibold text-white">
                   <span>Notifiche di Sistema</span>
@@ -170,7 +161,7 @@ type ActiveWindow =
                   <div class="max-h-64 space-y-2 overflow-y-auto">
                     @for (n of notifications(); track n.id) {
                       <div class="rounded-xl border border-white/10 bg-black/30 p-2.5 text-xs">
-                        <div class="font-semibold text-sky-300">{{ n.title }}</div>
+                        <div class="font-semibold text-[#38bdf8]">{{ n.title }}</div>
                         <div class="mt-0.5 text-[11px] text-slate-300">{{ n.message }}</div>
                       </div>
                     }
@@ -179,9 +170,6 @@ type ActiveWindow =
               </div>
             }
           </div>
-        </div>
-
-        <div class="flex items-center gap-3 text-xs text-slate-300">
           @if (sharesData(); as sh) {
             <div class="hidden items-center gap-1.5 sm:flex">
               <span
@@ -403,9 +391,14 @@ type ActiveWindow =
             @if (primaryDisk(); as disk) {
               <div class="mt-3 flex items-center gap-4">
                 <div
-                  class="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-white/90 text-2xl shadow"
+                  class="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-[#1e293b] bg-[#0f172a] shadow"
                 >
-                  💾
+                  <svg viewBox="0 0 24 24" class="h-7 w-7" fill="none" stroke="#38bdf8" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="4" width="18" height="16" rx="3" fill="#141e33"/>
+                    <line x1="3" y1="14" x2="21" y2="14"/>
+                    <circle cx="17.5" cy="17" r="1" fill="#00ff88" stroke="none"/>
+                    <line x1="7" y1="17" x2="11" y2="17" stroke="#94a3b8"/>
+                  </svg>
                 </div>
                 <div class="min-w-0 flex-1 text-xs">
                   <span
@@ -632,15 +625,13 @@ type ActiveWindow =
                     ⋮
                   </button>
 
-                  <a
-                    [href]="getWebPort(stack) ? getAppUrl(getWebPort(stack)!) : null"
-                    [target]="getWebPort(stack) ? '_blank' : null"
-                    rel="noopener"
-                    (click)="!getWebPort(stack) && toggleStackMenu(stack.name)"
+                  <button
+                    type="button"
+                    (click)="openStackApp(stack)"
                     class="flex h-full w-full cursor-pointer flex-col items-center justify-center"
                   >
                     <div
-                      class="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-[#141e33] to-[#0f172a] border border-[#1e293b] text-lg font-bold text-[#38bdf8] shadow-lg transition group-hover:scale-105"
+                      class="flex h-14 w-14 items-center justify-center rounded-2xl border border-[#1e293b] bg-gradient-to-br from-[#141e33] to-[#0f172a] text-lg font-bold text-[#38bdf8] shadow-lg transition group-hover:scale-105"
                     >
                       {{ stack.name.slice(0, 2).toUpperCase() }}
                     </div>
@@ -652,7 +643,7 @@ type ActiveWindow =
                         :{{ port }} ↗
                       </span>
                     }
-                  </a>
+                  </button>
 
                   <!-- Quick Dropdown Menu -->
                   @if (openMenuStack() === stack.name) {
@@ -971,7 +962,20 @@ export class AppComponent implements OnInit, OnDestroy {
   notifications = signal<SystemNotification[]>([]);
   activeToasts = signal<SystemNotification[]>([]);
   notificationsOpen = signal(false);
+  menuOpen = signal(false);
   ramModalOpen = signal(false);
+
+  menuItems: Array<{ id: Exclude<ActiveWindow, null>; label: string; icon: string }> = [
+    { id: 'store', label: 'App Store', icon: '🛍️' },
+    { id: 'files', label: 'Files (File Manager)', icon: '📁' },
+    { id: 'storage', label: 'Storage & Dischi', icon: '🖴' },
+    { id: 'shares', label: 'Condivisioni (SMB/NFS/FTP)', icon: '🔗' },
+    { id: 'services', label: 'Servizi, Porte & Firewall', icon: '🔌' },
+    { id: 'users', label: 'Utenti & Permessi', icon: '👤' },
+    { id: 'logs', label: 'Log di Sistema', icon: '📜' },
+    { id: 'ai', label: 'AI Agent', icon: '🤖' },
+    { id: 'settings', label: 'Impostazioni', icon: '⚙️' },
+  ];
   ramProcesses = signal<ProcessMemoryInfo[]>([]);
   appVersion = signal('1.0.0');
   desktopSearch = '';
@@ -1245,6 +1249,15 @@ export class AppComponent implements OnInit, OnDestroy {
 
   getAppUrl(port: string): string {
     return `${window.location.protocol}//${window.location.hostname}:${port}`;
+  }
+
+  openStackApp(stack: StackInfo): void {
+    const port = this.getWebPort(stack);
+    if (port) {
+      window.open(this.getAppUrl(port), '_blank', 'noopener');
+    } else {
+      this.toggleStackMenu(stack.name);
+    }
   }
 
   runStackAction(

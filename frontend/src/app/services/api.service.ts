@@ -838,52 +838,20 @@ export class ApiService {
     return this.http.get<SystemUpdateStatus>('/api/settings/updates');
   }
 
-  async applySystemUpdateSse(
-    password: string,
-    onLog: (msg: string) => void
-  ): Promise<void> {
-    const response = await fetch('/api/settings/updates/apply', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password }),
+  startSystemUpdate(password: string): Observable<{ started: boolean }> {
+    return this.http.post<{ started: boolean }>('/api/settings/updates/apply', {
+      password,
     });
+  }
 
-    if (!response.ok) {
-      let errorMsg = `HTTP ${response.status}`;
-      try {
-        const body = (await response.json()) as { error?: string };
-        if (body.error) errorMsg = body.error;
-      } catch {
-        // ignore
-      }
-      throw new Error(errorMsg);
-    }
+  getSystemUpdateProgress(): Observable<{ state: string; message: string }> {
+    return this.http.get<{ state: string; message: string }>(
+      '/api/settings/updates/progress'
+    );
+  }
 
-    const reader = response.body?.getReader();
-    if (!reader) return;
-
-    const decoder = new TextDecoder();
-    let buffer = '';
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const blocks = buffer.split('\n\n');
-      buffer = blocks.pop() ?? '';
-      for (const block of blocks) {
-        const dataLine = block.split('\n').find((l) => l.startsWith('data:'));
-        if (!dataLine) continue;
-        try {
-          const parsed = JSON.parse(dataLine.slice(5).trim()) as {
-            message?: string;
-            error?: string;
-          };
-          if (parsed.message) onLog(parsed.message);
-        } catch {
-          // ignore
-        }
-      }
-    }
+  checkHealth(): Observable<{ status: string }> {
+    return this.http.get<{ status: string }>('/api/health');
   }
 
   getAuthStatus(): Observable<{ authenticated: boolean; username: string | null }> {

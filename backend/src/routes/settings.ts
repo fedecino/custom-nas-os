@@ -380,6 +380,20 @@ async function verifyAnySudoPassword(
   }
 }
 
+const UPDATE_STATUS_FILE = '/run/nas-os-update.status';
+
+router.get('/updates/progress', async (_req: Request, res: Response) => {
+  try {
+    const raw = (await fs.readFile(UPDATE_STATUS_FILE, 'utf-8')).trim();
+    const colonIdx = raw.indexOf(':');
+    const state = colonIdx > 0 ? raw.slice(0, colonIdx) : raw;
+    const message = colonIdx > 0 ? raw.slice(colonIdx + 1) : '';
+    res.json({ state, message });
+  } catch {
+    res.json({ state: 'idle', message: '' });
+  }
+});
+
 router.post('/updates/apply', async (req: Request, res: Response) => {
   const { username, password, repoUrl } = req.body as {
     username?: string;
@@ -402,41 +416,32 @@ router.post('/updates/apply', async (req: Request, res: Response) => {
   const settings = await readFullSettings();
   const targetRepo = (repoUrl?.trim() || settings.repoUrl).trim();
 
-  res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
-  res.setHeader('Cache-Control', 'no-cache, no-transform');
-  res.setHeader('Connection', 'keep-alive');
-  res.setHeader('X-Accel-Buffering', 'no');
-  res.flushHeaders();
+  await fs.writeFile(
+    UPDATE_STATUS_FILE,
+    'running:Avvio aggiornamento di sistema...',
+    'utf-8'
+  ).catch(() => {});
 
-  const sendEvent = (event: string, data: Record<string, unknown>) => {
-    if (!res.writableEnded) {
-      res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  // Run in an isolated transient systemd unit so `systemctl restart nas-os` doesn't kill the updater mid-way
+  const unitName = `siloos-updater-${Date.now()}`;
+  const child = spawn(
+    'systemd-run',
+    ['--unit', unitName, '--collect', '/usr/local/sbin/nas-os-update', targetRepo],
+    {
+      detached: true,
+      stdio: 'ignore',
     }
-  };
-
-  sendEvent('log', { message: 'Autenticazione confermata. Avvio nas-os-update...' });
-
-  const child = spawn('/usr/local/sbin/nas-os-update', [targetRepo], {
-    env: { ...process.env, FORCE_COLOR: '0' },
+  );
+  child.on('error', () => {
+    const fallback = spawn('/usr/local/sbin/nas-os-update', [targetRepo], {
+      detached: true,
+      stdio: 'ignore',
+    });
+    fallback.unref();
   });
+  child.unref();
 
-  child.stdout.on('data', (chunk: Buffer) => {
-    sendEvent('log', { message: chunk.toString('utf-8') });
-  });
-
-  child.stderr.on('data', (chunk: Buffer) => {
-    sendEvent('log', { message: chunk.toString('utf-8') });
-  });
-
-  child.on('error', (err) => {
-    sendEvent('error', { message: err.message });
-    if (!res.writableEnded) res.end();
-  });
-
-  child.on('close', (code) => {
-    sendEvent('done', { exitCode: code ?? 0, success: code === 0 });
-    if (!res.writableEnded) res.end();
-  });
+  res.status(202).json({ started: true });
 });
 
 const WALLPAPER_PATH = path.join(DATA_DIR, '.nas-os', 'custom-wallpaper');
