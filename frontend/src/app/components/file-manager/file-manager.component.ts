@@ -9,6 +9,7 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { forkJoin } from 'rxjs';
 import { ApiService, FileEntry, MountedDisk } from '../../services/api.service';
 import { DialogService } from '../../services/dialog.service';
@@ -195,7 +196,7 @@ interface ContextMenuState {
                   <tr
                     [attr.data-file-row]="idx"
                     (click)="onRowClick($event, item, idx)"
-                    (dblclick)="item.isDirectory ? openDir(item.path) : downloadItem(item)"
+                    (dblclick)="item.isDirectory ? openDir(item.path) : openFilePreview(item)"
                     (contextmenu)="onItemContextMenu($event, item, idx)"
                     class="cursor-pointer transition"
                     [ngClass]="
@@ -274,6 +275,14 @@ interface ContextMenuState {
                 <span>Condividi cartella...</span>
               </button>
             } @else {
+              <button
+                type="button"
+                (click)="openFilePreview(item); closeContextMenu()"
+                class="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-white hover:bg-white/10"
+              >
+                <span>👁️</span>
+                <span>Apri / Anteprima</span>
+              </button>
               <button
                 type="button"
                 (click)="downloadItem(item); closeContextMenu()"
@@ -470,6 +479,102 @@ interface ContextMenuState {
           </div>
         </div>
       }
+
+      <!-- File Preview / Viewer Modal -->
+      @if (previewState(); as pv) {
+        <div
+          class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-3 sm:p-6 backdrop-blur-sm"
+          (click)="closePreview()"
+        >
+          <div
+            class="flex h-[85vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-white/15 bg-[#0b1120] shadow-2xl"
+            (click)="$event.stopPropagation()"
+          >
+            <div class="flex items-center justify-between gap-3 border-b border-white/10 bg-slate-900/80 px-5 py-3">
+              <div class="min-w-0">
+                <h3 class="truncate text-sm font-semibold text-white">{{ pv.item.name }}</h3>
+                <p class="truncate font-mono text-[11px] text-slate-400">
+                  {{ pv.item.path }} · {{ formatBytes(pv.item.size) }}
+                </p>
+              </div>
+              <div class="flex shrink-0 items-center gap-2">
+                <a
+                  [href]="pv.rawUrl"
+                  target="_blank"
+                  class="rounded-lg border border-white/15 bg-white/5 px-3 py-1.5 text-xs text-slate-200 hover:bg-white/10"
+                >
+                  Apri in scheda ↗
+                </a>
+                <button
+                  type="button"
+                  (click)="downloadItem(pv.item)"
+                  class="rounded-lg bg-[#38bdf8] px-3 py-1.5 text-xs font-semibold text-[#090e1a] hover:brightness-110"
+                >
+                  ⬇️ Scarica
+                </button>
+                <button
+                  type="button"
+                  (click)="closePreview()"
+                  class="rounded-lg p-1.5 text-slate-400 hover:bg-white/10 hover:text-white"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+
+            <div class="min-h-0 flex-1 overflow-auto bg-black/40 p-4 flex items-center justify-center">
+              @if (pv.kind === 'image') {
+                <img
+                  [src]="pv.rawUrl"
+                  [alt]="pv.item.name"
+                  class="max-h-full max-w-full rounded-lg object-contain shadow-xl"
+                />
+              } @else if (pv.kind === 'pdf') {
+                <iframe
+                  [src]="pv.safeUrl"
+                  class="h-full w-full rounded-xl border border-white/10 bg-white"
+                ></iframe>
+              } @else if (pv.kind === 'video') {
+                <video
+                  [src]="pv.rawUrl"
+                  controls
+                  autoplay
+                  class="max-h-full max-w-full rounded-xl shadow-xl"
+                ></video>
+              } @else if (pv.kind === 'audio') {
+                <div class="w-full max-w-md rounded-2xl border border-white/10 bg-slate-900/80 p-6 text-center">
+                  <div class="text-4xl">🎵</div>
+                  <p class="mt-2 truncate text-sm font-medium text-white">{{ pv.item.name }}</p>
+                  <audio [src]="pv.rawUrl" controls autoplay class="mt-4 w-full"></audio>
+                </div>
+              } @else if (pv.kind === 'text') {
+                @if (pv.loadingText) {
+                  <div class="text-xs text-slate-400">Caricamento contenuto...</div>
+                } @else {
+                  <pre class="h-full w-full overflow-auto rounded-xl border border-white/10 bg-slate-950/90 p-4 font-mono text-xs leading-relaxed text-slate-200">{{ pv.textContent }}</pre>
+                }
+              } @else {
+                <div class="text-center">
+                  <div class="text-4xl">📦</div>
+                  <p class="mt-2 text-sm font-medium text-white">
+                    Anteprima non disponibile per questo formato
+                  </p>
+                  <p class="mt-1 text-xs text-slate-400">
+                    Puoi scaricare il file sul tuo dispositivo oppure aprirlo in una nuova scheda.
+                  </p>
+                  <button
+                    type="button"
+                    (click)="downloadItem(pv.item)"
+                    class="mt-4 rounded-xl bg-[#38bdf8] px-5 py-2 text-xs font-semibold text-[#090e1a] hover:brightness-110"
+                  >
+                    ⬇️ Scarica {{ pv.item.name }}
+                  </button>
+                </div>
+              }
+            </div>
+          </div>
+        </div>
+      }
     </div>
   `,
 })
@@ -481,6 +586,15 @@ export class FileManagerComponent implements OnInit {
 
   currentPath = signal('/DATA');
   private readonly dialog = inject(DialogService);
+  private readonly sanitizer = inject(DomSanitizer);
+  previewState = signal<{
+    item: FileEntry;
+    kind: 'image' | 'pdf' | 'video' | 'audio' | 'text' | 'other';
+    rawUrl: string;
+    safeUrl: SafeResourceUrl;
+    loadingText?: boolean;
+    textContent?: string;
+  } | null>(null);
   parentPath = signal<string | null>('/');
   items = signal<FileEntry[]>([]);
   mountedDisks = signal<MountedDisk[]>([]);
@@ -519,6 +633,9 @@ export class FileManagerComponent implements OnInit {
   closeContextMenu(): void {
     if (this.contextMenu()) {
       this.contextMenu.set(null);
+    }
+    if (this.previewState()) {
+      this.previewState.set(null);
     }
   }
 
@@ -909,6 +1026,61 @@ export class FileManagerComponent implements OnInit {
       `/api/files/download?path=${encodeURIComponent(item.path)}`,
       '_blank'
     );
+  }
+
+  closePreview(): void {
+    this.previewState.set(null);
+  }
+
+  openFilePreview(item: FileEntry): void {
+    const ext = item.name.split('.').pop()?.toLowerCase() ?? '';
+    const rawUrl = `/api/files/view?path=${encodeURIComponent(item.path)}`;
+    const safeUrl = this.sanitizer.bypassSecurityTrustResourceUrl(rawUrl);
+
+    const imageExts = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'ico']);
+    const videoExts = new Set(['mp4', 'webm', 'mov', 'm4v', 'ogv']);
+    const audioExts = new Set(['mp3', 'wav', 'flac', 'aac', 'm4a', 'ogg']);
+    const textExts = new Set([
+      'txt', 'md', 'json', 'yml', 'yaml', 'xml', 'csv', 'log', 'conf', 'ini',
+      'env', 'sh', 'ts', 'js', 'html', 'css', 'py', 'sql', 'toml',
+    ]);
+
+    let kind: 'image' | 'pdf' | 'video' | 'audio' | 'text' | 'other' = 'other';
+    if (imageExts.has(ext)) kind = 'image';
+    else if (ext === 'pdf') kind = 'pdf';
+    else if (videoExts.has(ext)) kind = 'video';
+    else if (audioExts.has(ext)) kind = 'audio';
+    else if (textExts.has(ext)) kind = 'text';
+
+    if (kind === 'text') {
+      this.previewState.set({
+        item,
+        kind,
+        rawUrl,
+        safeUrl,
+        loadingText: true,
+        textContent: '',
+      });
+      fetch(rawUrl)
+        .then((r) => r.text())
+        .then((text) => {
+          this.previewState.update((cur) =>
+            cur && cur.item.path === item.path
+              ? { ...cur, loadingText: false, textContent: text.slice(0, 200000) }
+              : cur
+          );
+        })
+        .catch(() => {
+          this.previewState.update((cur) =>
+            cur && cur.item.path === item.path
+              ? { ...cur, loadingText: false, textContent: 'Errore lettura file.' }
+              : cur
+          );
+        });
+      return;
+    }
+
+    this.previewState.set({ item, kind, rawUrl, safeUrl });
   }
 
   currentHost(): string {
