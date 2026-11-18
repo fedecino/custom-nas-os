@@ -9,6 +9,7 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { forkJoin } from 'rxjs';
 import { ApiService, FileEntry, MountedDisk } from '../../services/api.service';
 import { DialogService } from '../../services/dialog.service';
 
@@ -147,11 +148,42 @@ interface ContextMenuState {
           </div>
         </div>
 
-        <!-- Files Area (Right-click enabled on both items and empty space) -->
+        <!-- Files Area (Right-click, Shift+Click, Shift+Arrows, and Mouse Drag Selection) -->
         <div
+          #filesArea
+          tabindex="0"
+          (keydown)="onFilesKeyDown($event)"
+          (mousedown)="onFilesAreaMouseDown($event)"
           (contextmenu)="onEmptyContextMenu($event)"
-          class="min-h-0 overflow-y-auto rounded-2xl border border-white/10 bg-slate-900/60 md:col-span-9"
+          class="relative min-h-0 select-none overflow-y-auto rounded-2xl border border-white/10 bg-slate-900/60 focus:border-[#38bdf8]/40 focus:outline-none md:col-span-9"
         >
+          @if (selectedPaths().size > 0) {
+            <div
+              (mousedown)="$event.stopPropagation()"
+              class="sticky top-0 z-20 flex flex-wrap items-center justify-between gap-2 border-b border-[#38bdf8]/30 bg-slate-950/95 px-4 py-2 text-xs backdrop-blur-md"
+            >
+              <span class="font-medium text-[#38bdf8]">
+                {{ selectedPaths().size }} {{ selectedPaths().size === 1 ? 'elemento selezionato' : 'elementi selezionati' }}
+              </span>
+              <div class="flex items-center gap-2">
+                <button
+                  type="button"
+                  (click)="deleteSelected()"
+                  class="rounded-lg bg-rose-500/20 px-3 py-1 font-medium text-rose-200 hover:bg-rose-500/35"
+                >
+                  🗑️ Elimina selezionati
+                </button>
+                <button
+                  type="button"
+                  (click)="clearSelection()"
+                  class="rounded-lg border border-white/10 bg-white/5 px-3 py-1 text-slate-300 hover:bg-white/10"
+                >
+                  Deseleziona
+                </button>
+              </div>
+            </div>
+          }
+
           @if (items().length === 0) {
             <div class="flex h-full flex-col items-center justify-center py-16 text-center text-xs text-slate-400">
               <div class="text-3xl">📂</div>
@@ -163,17 +195,33 @@ interface ContextMenuState {
             <table class="w-full text-left text-xs">
               <thead class="sticky top-0 border-b border-white/10 bg-slate-950/95 text-[11px] uppercase text-slate-400">
                 <tr>
+                  <th class="w-8 px-3 py-2.5"></th>
                   <th class="px-4 py-2.5">Nome</th>
                   <th class="px-4 py-2.5 text-right">Dimensione</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-white/5">
-                @for (item of items(); track item.path) {
+                @for (item of items(); track item.path; let idx = $index) {
                   <tr
+                    [attr.data-file-row]="idx"
+                    (click)="onRowClick($event, item, idx)"
                     (dblclick)="item.isDirectory ? openDir(item.path) : downloadItem(item)"
-                    (contextmenu)="onItemContextMenu($event, item)"
-                    class="cursor-pointer transition hover:bg-white/[0.06]"
+                    (contextmenu)="onItemContextMenu($event, item, idx)"
+                    class="cursor-pointer transition"
+                    [ngClass]="
+                      isSelected(item.path)
+                        ? 'bg-[#38bdf8]/15 hover:bg-[#38bdf8]/20'
+                        : 'hover:bg-white/[0.06]'
+                    "
                   >
+                    <td class="px-3 py-2.5 text-center">
+                      <input
+                        type="checkbox"
+                        [checked]="isSelected(item.path)"
+                        (click)="onCheckboxClick($event, item, idx)"
+                        class="h-3.5 w-3.5 rounded border-white/20 bg-black/40 accent-[#38bdf8]"
+                      />
+                    </td>
                     <td class="px-4 py-2.5">
                       <div class="flex items-center gap-2.5">
                         <span>{{ item.isDirectory ? '📁' : '📄' }}</span>
@@ -195,6 +243,16 @@ interface ContextMenuState {
                 }
               </tbody>
             </table>
+          }
+
+          @if (selectionBox(); as box) {
+            <div
+              class="pointer-events-none fixed z-40 rounded border border-[#38bdf8] bg-[#38bdf8]/15"
+              [style.left.px]="box.left"
+              [style.top.px]="box.top"
+              [style.width.px]="box.width"
+              [style.height.px]="box.height"
+            ></div>
           }
         </div>
       </div>
@@ -244,14 +302,25 @@ interface ContextMenuState {
               <span>Rinomina</span>
             </button>
             <div class="my-1 border-t border-white/10"></div>
-            <button
-              type="button"
-              (click)="deleteItem(item); closeContextMenu()"
-              class="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-rose-300 hover:bg-rose-500/15"
-            >
-              <span>🗑️</span>
-              <span>Elimina</span>
-            </button>
+            @if (selectedPaths().size > 1) {
+              <button
+                type="button"
+                (click)="deleteSelected(); closeContextMenu()"
+                class="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-rose-300 hover:bg-rose-500/15"
+              >
+                <span>🗑️</span>
+                <span>Elimina ({{ selectedPaths().size }})</span>
+              </button>
+            } @else {
+              <button
+                type="button"
+                (click)="deleteItem(item); closeContextMenu()"
+                class="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-rose-300 hover:bg-rose-500/15"
+              >
+                <span>🗑️</span>
+                <span>Elimina</span>
+              </button>
+            }
           } @else {
             <button
               type="button"
@@ -418,12 +487,22 @@ export class FileManagerComponent implements OnInit {
   private readonly api = inject(ApiService);
 
   @ViewChild('fileInput') fileInput?: ElementRef<HTMLInputElement>;
+  @ViewChild('filesArea') filesArea?: ElementRef<HTMLDivElement>;
 
   currentPath = signal('/DATA');
   private readonly dialog = inject(DialogService);
   parentPath = signal<string | null>('/');
   items = signal<FileEntry[]>([]);
   mountedDisks = signal<MountedDisk[]>([]);
+  selectedPaths = signal<Set<string>>(new Set());
+  anchorIndex = signal<number | null>(null);
+  focusIndex = signal<number | null>(null);
+  selectionBox = signal<{ left: number; top: number; width: number; height: number } | null>(null);
+
+  private marqueeStart: { x: number; y: number } | null = null;
+  private marqueeAdditive = false;
+  private marqueeBaseSelection = new Set<string>();
+  private suppressNextRowClick = false;
 
   feedback = signal<string | null>(null);
   feedbackOk = signal(true);
@@ -450,17 +529,197 @@ export class FileManagerComponent implements OnInit {
     }
   }
 
+  @HostListener('document:mousemove', ['$event'])
+  onDocumentMouseMove(event: MouseEvent): void {
+    if (!this.marqueeStart) return;
+    const dx = Math.abs(event.clientX - this.marqueeStart.x);
+    const dy = Math.abs(event.clientY - this.marqueeStart.y);
+    if (!this.selectionBox() && dx < 5 && dy < 5) return;
+
+    const left = Math.min(this.marqueeStart.x, event.clientX);
+    const top = Math.min(this.marqueeStart.y, event.clientY);
+    const width = Math.abs(event.clientX - this.marqueeStart.x);
+    const height = Math.abs(event.clientY - this.marqueeStart.y);
+    const box = { left, top, width, height };
+    this.selectionBox.set(box);
+    this.suppressNextRowClick = true;
+
+    const next = this.marqueeAdditive ? new Set(this.marqueeBaseSelection) : new Set<string>();
+    const container = this.filesArea?.nativeElement;
+    if (container) {
+      const list = this.items();
+      const rows = container.querySelectorAll<HTMLElement>('[data-file-row]');
+      rows.forEach((row) => {
+        const idx = Number(row.dataset['fileRow']);
+        const item = list[idx];
+        if (!item) return;
+        const rect = row.getBoundingClientRect();
+        const intersects =
+          rect.left <= box.left + box.width &&
+          rect.right >= box.left &&
+          rect.top <= box.top + box.height &&
+          rect.bottom >= box.top;
+        if (intersects) {
+          next.add(item.path);
+        }
+      });
+    }
+    this.selectedPaths.set(next);
+  }
+
+  @HostListener('document:mouseup')
+  onDocumentMouseUp(): void {
+    if (!this.marqueeStart) return;
+    this.marqueeStart = null;
+    this.selectionBox.set(null);
+    if (this.suppressNextRowClick) {
+      setTimeout(() => {
+        this.suppressNextRowClick = false;
+      }, 0);
+    }
+  }
+
+  isSelected(filePath: string): boolean {
+    return this.selectedPaths().has(filePath);
+  }
+
+  clearSelection(): void {
+    this.selectedPaths.set(new Set());
+    this.anchorIndex.set(null);
+    this.focusIndex.set(null);
+  }
+
+  private selectRange(fromIdx: number, toIdx: number): void {
+    const list = this.items();
+    const start = Math.max(0, Math.min(fromIdx, toIdx));
+    const end = Math.min(list.length - 1, Math.max(fromIdx, toIdx));
+    const next = new Set<string>();
+    for (let i = start; i <= end; i++) {
+      next.add(list[i].path);
+    }
+    this.selectedPaths.set(next);
+  }
+
+  onFilesAreaMouseDown(event: MouseEvent): void {
+    if (event.button !== 0) return;
+    this.filesArea?.nativeElement.focus({ preventScroll: true });
+    this.marqueeStart = { x: event.clientX, y: event.clientY };
+    this.marqueeAdditive = event.shiftKey || event.ctrlKey || event.metaKey;
+    this.marqueeBaseSelection = new Set(this.selectedPaths());
+    if (!this.marqueeAdditive && event.target === this.filesArea?.nativeElement) {
+      this.clearSelection();
+    }
+  }
+
+  onRowClick(event: MouseEvent, item: FileEntry, idx: number): void {
+    if (this.suppressNextRowClick) return;
+    this.filesArea?.nativeElement.focus({ preventScroll: true });
+
+    if (event.shiftKey && this.anchorIndex() !== null) {
+      this.selectRange(this.anchorIndex()!, idx);
+      this.focusIndex.set(idx);
+      return;
+    }
+
+    if (event.ctrlKey || event.metaKey) {
+      const next = new Set(this.selectedPaths());
+      if (next.has(item.path)) {
+        next.delete(item.path);
+      } else {
+        next.add(item.path);
+      }
+      this.selectedPaths.set(next);
+      this.anchorIndex.set(idx);
+      this.focusIndex.set(idx);
+      return;
+    }
+
+    this.selectedPaths.set(new Set([item.path]));
+    this.anchorIndex.set(idx);
+    this.focusIndex.set(idx);
+  }
+
+  onCheckboxClick(event: MouseEvent, item: FileEntry, idx: number): void {
+    event.stopPropagation();
+    if (event.shiftKey && this.anchorIndex() !== null) {
+      this.selectRange(this.anchorIndex()!, idx);
+      this.focusIndex.set(idx);
+      return;
+    }
+    const next = new Set(this.selectedPaths());
+    if (next.has(item.path)) {
+      next.delete(item.path);
+    } else {
+      next.add(item.path);
+    }
+    this.selectedPaths.set(next);
+    this.anchorIndex.set(idx);
+    this.focusIndex.set(idx);
+  }
+
+  onFilesKeyDown(event: KeyboardEvent): void {
+    const list = this.items();
+    if (list.length === 0) return;
+
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'a') {
+      event.preventDefault();
+      this.selectedPaths.set(new Set(list.map((i) => i.path)));
+      this.anchorIndex.set(0);
+      this.focusIndex.set(list.length - 1);
+      return;
+    }
+
+    if (event.key === 'Escape') {
+      this.clearSelection();
+      return;
+    }
+
+    if (event.key === 'Delete' && this.selectedPaths().size > 0) {
+      event.preventDefault();
+      this.deleteSelected();
+      return;
+    }
+
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      const current = this.focusIndex();
+      const nextIdx =
+        event.key === 'ArrowDown'
+          ? Math.min(list.length - 1, current === null ? 0 : current + 1)
+          : Math.max(0, current === null ? 0 : current - 1);
+
+      if (event.shiftKey) {
+        const anchor = this.anchorIndex() ?? (current ?? nextIdx);
+        if (this.anchorIndex() === null) this.anchorIndex.set(anchor);
+        this.selectRange(anchor, nextIdx);
+      } else {
+        this.selectedPaths.set(new Set([list[nextIdx].path]));
+        this.anchorIndex.set(nextIdx);
+      }
+      this.focusIndex.set(nextIdx);
+      const row = this.filesArea?.nativeElement.querySelector<HTMLElement>(
+        `[data-file-row="${nextIdx}"]`
+      );
+      row?.scrollIntoView({ block: 'nearest' });
+    }
+  }
+
   ngOnInit(): void {
     this.api.getStorageDisks().subscribe({
       next: (res) => this.mountedDisks.set(res.mounts),
-      error: () => {},
+      error: () => { },
     });
     this.openDir('/DATA');
   }
 
-  onItemContextMenu(event: MouseEvent, item: FileEntry): void {
-    event.preventDefault();
-    event.stopPropagation();
+    onItemContextMenu(event: MouseEvent, item: FileEntry, idx: number): void {
+      event.preventDefault();
+      event.stopPropagation();
+      if(!this.selectedPaths().has(item.path)) {
+      this.selectedPaths.set(new Set([item.path]));
+      this.anchorIndex.set(idx);
+      this.focusIndex.set(idx);
+    }
     this.openMenuAt(event.clientX, event.clientY, item);
   }
 
@@ -499,6 +758,7 @@ export class FileManagerComponent implements OnInit {
     this.api.listFiles(dirPath).subscribe({
       next: (res) => {
         this.feedback.set(null);
+        this.clearSelection();
         this.currentPath.set(res.currentPath);
         this.parentPath.set(res.parentPath);
         this.items.set(res.items);
@@ -595,6 +855,35 @@ export class FileManagerComponent implements OnInit {
       error: (err) => {
         this.feedbackOk.set(false);
         this.feedback.set(err?.error?.error ?? 'Errore eliminazione');
+      },
+    });
+  }
+
+  async deleteSelected(): Promise<void> {
+    const paths = Array.from(this.selectedPaths());
+    if (paths.length === 0) return;
+
+    const confirmed = await this.dialog.confirm(
+      `Eliminare ${paths.length} ${paths.length === 1 ? 'elemento selezionato' : 'elementi selezionati'}?`,
+      {
+        title: 'Elimina Selezione',
+        confirmText: 'Elimina',
+        danger: true,
+      }
+    );
+    if (!confirmed) return;
+
+    forkJoin(paths.map((p) => this.api.deleteFileOrFolder(p))).subscribe({
+      next: () => {
+        this.feedbackOk.set(true);
+        this.feedback.set(`Eliminati ${paths.length} elementi`);
+        this.clearSelection();
+        this.openDir(this.currentPath());
+      },
+      error: (err) => {
+        this.feedbackOk.set(false);
+        this.feedback.set(err?.error?.error ?? 'Errore durante eliminazione multipla');
+        this.openDir(this.currentPath());
       },
     });
   }
