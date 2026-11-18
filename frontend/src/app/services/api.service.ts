@@ -175,12 +175,23 @@ export interface NasSettingsResponse {
   settings: {
     nasName: string;
     wallpaper: 'aurora' | 'midnight' | 'ocean' | 'carbon';
+    repoUrl?: string;
     ai: AiSettingsView;
   };
   network: Array<{
     name: string;
     addresses: Array<{ family: string; address: string; mac: string }>;
   }>;
+}
+
+export interface SystemUpdateStatus {
+  initialized: boolean;
+  repoUrl: string;
+  currentCommit: string | null;
+  remoteCommit: string | null;
+  behindCount: number;
+  updateAvailable: boolean;
+  latestMessage: string;
 }
 
 export interface AiChatMessage {
@@ -511,6 +522,7 @@ export class ApiService {
     hostname?: string;
     nasName?: string;
     wallpaper?: 'aurora' | 'midnight' | 'ocean' | 'carbon';
+    repoUrl?: string;
     ai?: {
       enabled?: boolean;
       providerType?: 'ollama' | 'lmstudio' | 'openai' | 'gemini' | 'custom';
@@ -757,5 +769,59 @@ export class ApiService {
       xhr.onerror = () => reject(new Error('Errore di rete durante upload'));
       xhr.send(file);
     });
+  }
+
+  checkSystemUpdates(): Observable<SystemUpdateStatus> {
+    return this.http.get<SystemUpdateStatus>('/api/settings/updates');
+  }
+
+  async applySystemUpdateSse(
+    username: string,
+    password: string,
+    repoUrl: string,
+    onLog: (msg: string) => void
+  ): Promise<void> {
+    const response = await fetch('/api/settings/updates/apply', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password, repoUrl }),
+    });
+
+    if (!response.ok) {
+      let errorMsg = `HTTP ${response.status}`;
+      try {
+        const body = (await response.json()) as { error?: string };
+        if (body.error) errorMsg = body.error;
+      } catch {
+        // ignore
+      }
+      throw new Error(errorMsg);
+    }
+
+    const reader = response.body?.getReader();
+    if (!reader) return;
+
+    const decoder = new TextDecoder();
+    let buffer = '';
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const blocks = buffer.split('\n\n');
+      buffer = blocks.pop() ?? '';
+      for (const block of blocks) {
+        const dataLine = block.split('\n').find((l) => l.startsWith('data:'));
+        if (!dataLine) continue;
+        try {
+          const parsed = JSON.parse(dataLine.slice(5).trim()) as {
+            message?: string;
+            error?: string;
+          };
+          if (parsed.message) onLog(parsed.message);
+        } catch {
+          // ignore
+        }
+      }
+    }
   }
 }

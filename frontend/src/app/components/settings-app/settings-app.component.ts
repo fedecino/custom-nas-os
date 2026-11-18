@@ -12,6 +12,7 @@ import {
   AiSettingsView,
   ApiService,
   NasSettingsResponse,
+  SystemUpdateStatus,
 } from '../../services/api.service';
 
 @Component({
@@ -217,6 +218,125 @@ import {
         Salva Tutte le Impostazioni
       </button>
 
+      <!-- System Updates (GitHub) -->
+      <div class="rounded-2xl border border-white/10 bg-slate-900/60 p-5 space-y-4">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 class="text-xs font-semibold uppercase tracking-wider text-emerald-300">
+              Aggiornamenti Sistema (GitHub)
+            </h3>
+            <p class="mt-0.5 text-[11px] text-slate-400">
+              Verifica la presenza di nuove versioni e aggiorna NAS-OS senza toccare /DATA o i container
+            </p>
+          </div>
+          <button
+            type="button"
+            (click)="checkUpdates()"
+            [disabled]="checkingUpdates() || updatingSystem()"
+            class="rounded-xl border border-emerald-400/40 bg-emerald-500/15 px-4 py-2 text-xs font-medium text-emerald-300 hover:bg-emerald-500/25 disabled:opacity-50"
+          >
+            {{ checkingUpdates() ? 'Controllo...' : 'Controlla Aggiornamenti' }}
+          </button>
+        </div>
+
+        <div>
+          <label class="block text-xs font-medium text-slate-300">
+            URL Repository GitHub
+          </label>
+          <input
+            type="text"
+            [(ngModel)]="repoUrl"
+            placeholder="https://github.com/fedecino/custom-nas-os.git"
+            class="mt-1.5 w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 font-mono text-xs text-white focus:border-sky-400 focus:outline-none"
+          />
+        </div>
+
+        @if (updateStatus(); as st) {
+          <div class="rounded-xl border border-white/10 bg-black/30 p-3.5 text-xs space-y-2">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              @if (!st.initialized) {
+                <span class="text-amber-300">Repository non ancora clonato su questo NAS</span>
+              } @else if (st.updateAvailable) {
+                <span class="font-semibold text-amber-300">
+                  Disponibili {{ st.behindCount }} nuovi aggiornamenti ({{ st.currentCommit }} → {{ st.remoteCommit }})
+                </span>
+              } @else {
+                <span class="font-semibold text-emerald-300">
+                  ✓ Sistema aggiornato (commit {{ st.currentCommit }})
+                </span>
+              }
+
+              <button
+                type="button"
+                (click)="showAuthPrompt.set(true)"
+                [disabled]="updatingSystem()"
+                class="rounded-xl bg-emerald-500 px-4 py-1.5 text-xs font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-50"
+              >
+                Aggiorna Sistema
+              </button>
+            </div>
+            @if (st.latestMessage) {
+              <div class="text-[11px] text-slate-400">
+                Ultimo commit remoto: <span class="text-slate-200">{{ st.latestMessage }}</span>
+              </div>
+            }
+          </div>
+        }
+
+        @if (showAuthPrompt()) {
+          <div class="rounded-xl border border-amber-500/30 bg-amber-950/20 p-4 space-y-3">
+            <h4 class="text-xs font-semibold text-amber-300">
+              Conferma identità amministratore (sudo) per avviare l'aggiornamento
+            </h4>
+            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <input
+                type="text"
+                [(ngModel)]="authUsername"
+                placeholder="Username (es. fede)"
+                class="rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-xs text-white focus:border-sky-400 focus:outline-none"
+              />
+              <input
+                type="password"
+                [(ngModel)]="authPassword"
+                placeholder="Password amministratore"
+                class="rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-xs text-white focus:border-sky-400 focus:outline-none"
+              />
+            </div>
+            @if (updateError()) {
+              <div class="text-xs text-rose-300">{{ updateError() }}</div>
+            }
+            <div class="flex gap-2">
+              <button
+                type="button"
+                (click)="startUpdate()"
+                [disabled]="updatingSystem() || !authUsername.trim() || !authPassword"
+                class="rounded-xl bg-emerald-500 px-4 py-1.5 text-xs font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-50"
+              >
+                {{ updatingSystem() ? 'Aggiornamento in corso...' : 'Conferma e Aggiorna' }}
+              </button>
+              <button
+                type="button"
+                (click)="showAuthPrompt.set(false)"
+                [disabled]="updatingSystem()"
+                class="rounded-xl border border-white/10 px-3 py-1.5 text-xs text-slate-300"
+              >
+                Annulla
+              </button>
+            </div>
+          </div>
+        }
+
+        @if (updateLogs().length > 0) {
+          <div
+            class="max-h-56 overflow-y-auto rounded-xl border border-white/10 bg-[#06090f] p-3 font-mono text-[11px] text-slate-200"
+          >
+            @for (line of updateLogs(); track $index) {
+              <div class="whitespace-pre-wrap break-all">{{ line }}</div>
+            }
+          </div>
+        }
+      </div>
+
       <!-- Network Interfaces -->
       <div class="rounded-2xl border border-white/10 bg-slate-900/60 p-5 space-y-3">
         <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-300">
@@ -248,6 +368,16 @@ export class SettingsAppComponent implements OnInit {
   nasName = 'NAS-OS';
   hostname = '';
   wallpaper: 'aurora' | 'midnight' | 'ocean' | 'carbon' = 'aurora';
+  repoUrl = 'https://github.com/fedecino/custom-nas-os.git';
+
+  checkingUpdates = signal(false);
+  updatingSystem = signal(false);
+  updateStatus = signal<SystemUpdateStatus | null>(null);
+  showAuthPrompt = signal(false);
+  authUsername = '';
+  authPassword = '';
+  updateError = signal<string | null>(null);
+  updateLogs = signal<string[]>([]);
 
   aiEnabled = false;
   aiProvider: AiSettingsView['providerType'] = 'ollama';
@@ -334,6 +464,7 @@ export class SettingsAppComponent implements OnInit {
       next: (res) => {
         this.nasName = res.settings.nasName;
         this.wallpaper = res.settings.wallpaper;
+        if (res.settings.repoUrl) this.repoUrl = res.settings.repoUrl;
         this.hostname = res.hostname;
         this.network.set(res.network);
 
@@ -393,6 +524,7 @@ export class SettingsAppComponent implements OnInit {
         nasName: this.nasName,
         hostname: this.hostname,
         wallpaper: this.wallpaper,
+        repoUrl: this.repoUrl,
         ai: {
           enabled: this.aiEnabled,
           providerType: this.aiProvider,
@@ -417,5 +549,51 @@ export class SettingsAppComponent implements OnInit {
           this.feedback.set(err?.error?.error ?? 'Errore salvataggio impostazioni');
         },
       });
+  }
+
+  checkUpdates(): void {
+    this.checkingUpdates.set(true);
+    this.updateError.set(null);
+    this.api.checkSystemUpdates().subscribe({
+      next: (res) => {
+        this.checkingUpdates.set(false);
+        this.updateStatus.set(res);
+      },
+      error: (err) => {
+        this.checkingUpdates.set(false);
+        this.feedbackOk.set(false);
+        this.feedback.set(err?.error?.error ?? 'Errore controllo aggiornamenti');
+      },
+    });
+  }
+
+  async startUpdate(): Promise<void> {
+    this.updatingSystem.set(true);
+    this.updateError.set(null);
+    this.updateLogs.set([]);
+
+    try {
+      await this.api.applySystemUpdateSse(
+        this.authUsername.trim(),
+        this.authPassword,
+        this.repoUrl.trim(),
+        (msg) => {
+          this.updateLogs.update((prev) => [...prev, msg]);
+        }
+      );
+      this.authPassword = '';
+      this.showAuthPrompt.set(false);
+      this.updateLogs.update((prev) => [
+        ...prev,
+        'Riavvio del servizio completato. Ricaricamento interfaccia tra 3 secondi...',
+      ]);
+      setTimeout(() => window.location.reload(), 3000);
+    } catch (err) {
+      this.updateError.set(
+        err instanceof Error ? err.message : 'Aggiornamento fallito'
+      );
+    } finally {
+      this.updatingSystem.set(false);
+    }
   }
 }
