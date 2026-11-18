@@ -202,6 +202,38 @@ export interface ListeningPort {
   processName: string;
   pid: string | null;
   containerName: string | null;
+  description: string;
+}
+
+export interface FirewallRule {
+  index: number;
+  to: string;
+  action: string;
+  from: string;
+}
+
+export interface FirewallStatusResponse {
+  installed: boolean;
+  enabled: boolean;
+  rules: FirewallRule[];
+}
+
+export interface ProcessMemoryInfo {
+  pid: number;
+  user: string;
+  command: string;
+  memPercent: number;
+  rssBytes: number;
+  cpuPercent: number;
+  args: string;
+}
+
+export interface FileEntry {
+  name: string;
+  path: string;
+  isDirectory: boolean;
+  size: number;
+  modifiedAt: string | null;
 }
 
 export interface ManagedSystemService {
@@ -602,5 +634,118 @@ export class ApiService {
       }
     });
     return es;
+  }
+
+  getFirewallStatus(): Observable<FirewallStatusResponse> {
+    return this.http.get<FirewallStatusResponse>('/api/system/firewall');
+  }
+
+  toggleFirewall(enabled: boolean): Observable<FirewallStatusResponse> {
+    return this.http.post<FirewallStatusResponse>('/api/system/firewall/toggle', {
+      enabled,
+    });
+  }
+
+  addFirewallRule(
+    port: string | number,
+    protocol: 'tcp' | 'udp' | 'any',
+    action: 'allow' | 'deny'
+  ): Observable<FirewallStatusResponse> {
+    return this.http.post<FirewallStatusResponse>('/api/system/firewall/rules', {
+      port,
+      protocol,
+      action,
+    });
+  }
+
+  deleteFirewallRule(index: number): Observable<FirewallStatusResponse> {
+    return this.http.delete<FirewallStatusResponse>(
+      `/api/system/firewall/rules/${index}`
+    );
+  }
+
+  getTopMemoryProcesses(): Observable<{
+    memory: SystemInfo['memory'];
+    processes: ProcessMemoryInfo[];
+  }> {
+    return this.http.get<{
+      memory: SystemInfo['memory'];
+      processes: ProcessMemoryInfo[];
+    }>('/api/system/processes');
+  }
+
+  listFiles(dirPath: string): Observable<{
+    currentPath: string;
+    parentPath: string | null;
+    items: FileEntry[];
+  }> {
+    return this.http.get<{
+      currentPath: string;
+      parentPath: string | null;
+      items: FileEntry[];
+    }>('/api/files/list', { params: { path: dirPath } });
+  }
+
+  createFileFolder(
+    parentPath: string,
+    name: string
+  ): Observable<{ success: boolean; path: string }> {
+    return this.http.post<{ success: boolean; path: string }>('/api/files/mkdir', {
+      parentPath,
+      name,
+    });
+  }
+
+  renameFileOrFolder(
+    oldPath: string,
+    newName: string
+  ): Observable<{ success: boolean; newPath: string }> {
+    return this.http.post<{ success: boolean; newPath: string }>('/api/files/rename', {
+      oldPath,
+      newName,
+    });
+  }
+
+  deleteFileOrFolder(targetPath: string): Observable<{ success: boolean }> {
+    return this.http.delete<{ success: boolean }>('/api/files/delete', {
+      params: { path: targetPath },
+    });
+  }
+
+  uploadFileWithProgress(
+    dirPath: string,
+    file: File,
+    onProgress: (percent: number) => void
+  ): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      const url = `/api/files/upload?dir=${encodeURIComponent(
+        dirPath
+      )}&filename=${encodeURIComponent(file.name)}`;
+      xhr.open('POST', url, true);
+
+      xhr.upload.onprogress = (evt) => {
+        if (evt.lengthComputable) {
+          onProgress(Math.round((evt.loaded / evt.total) * 100));
+        }
+      };
+
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          onProgress(100);
+          resolve();
+        } else {
+          try {
+            const parsed = JSON.parse(xhr.responseText) as { error?: string };
+            reject(new Error(parsed.error || `HTTP ${xhr.status}`));
+          } catch {
+            reject(new Error(`HTTP ${xhr.status}`));
+          }
+        }
+      };
+
+      xhr.onerror = () => reject(new Error('Errore di rete durante upload'));
+      xhr.send(file);
+    });
   }
 }

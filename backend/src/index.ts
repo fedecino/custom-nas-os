@@ -1,6 +1,7 @@
 import cors from 'cors';
 import express from 'express';
 import aiRouter from './routes/ai.js';
+import filesRouter from './routes/files.js';
 import hubRouter from './routes/hub.js';
 import settingsRouter from './routes/settings.js';
 import sharesRouter from './routes/shares.js';
@@ -29,6 +30,7 @@ app.use('/api/shares', sharesRouter);
 app.use('/api/users', usersRouter);
 app.use('/api/settings', settingsRouter);
 app.use('/api/ai', aiRouter);
+app.use('/api/files', filesRouter);
 
 async function start(): Promise<void> {
   try {

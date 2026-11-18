@@ -6,6 +6,7 @@ import {
   ContainerInfo,
   InspectedImage,
   NasSettingsResponse,
+  ProcessMemoryInfo,
   SharesResponse,
   StackInfo,
   SystemInfo,
@@ -20,9 +21,11 @@ import { SettingsAppComponent } from './components/settings-app/settings-app.com
 import { AiAssistantComponent } from './components/ai-assistant/ai-assistant.component';
 import { ServicesManagerComponent } from './components/services-manager/services-manager.component';
 import { LogsViewerComponent } from './components/logs-viewer/logs-viewer.component';
+import { FileManagerComponent } from './components/file-manager/file-manager.component';
 
 type ActiveWindow =
   | 'store'
+  | 'files'
   | 'storage'
   | 'shares'
   | 'users'
@@ -47,6 +50,7 @@ type ActiveWindow =
     AiAssistantComponent,
     ServicesManagerComponent,
     LogsViewerComponent,
+    FileManagerComponent,
   ],
   template: `
     <div
@@ -273,11 +277,21 @@ type ActiveWindow =
                     {{ systemInfo() ? systemInfo()!.cpu.usagePercent + '%' : '—' }}
                   </div>
                 </div>
-                <span class="mt-1.5 text-xs text-slate-300">CPU</span>
+                <span class="mt-1.5 text-xs font-medium text-slate-200">CPU</span>
+                @if (systemInfo(); as sys) {
+                  <span class="text-[10px] text-slate-400">
+                    {{ sys.cpu.cores }} core
+                  </span>
+                }
               </div>
 
-              <!-- RAM Ring -->
-              <div class="flex flex-col items-center">
+              <!-- RAM Ring (Clickable to inspect processes) -->
+              <button
+                type="button"
+                (click)="openRamProcessesModal()"
+                title="Clicca per vedere i processi che usano la RAM"
+                class="group flex flex-col items-center rounded-xl p-1 transition hover:bg-white/10"
+              >
                 <div class="relative h-20 w-20">
                   <svg viewBox="0 0 36 36" class="h-full w-full -rotate-90">
                     <circle
@@ -308,9 +322,26 @@ type ActiveWindow =
                     {{ systemInfo() ? systemInfo()!.memory.usedPercent + '%' : '—' }}
                   </div>
                 </div>
-                <span class="mt-1.5 text-xs text-slate-300">RAM</span>
-              </div>
+                <span class="mt-1.5 text-xs font-medium text-slate-200 group-hover:text-emerald-300">
+                  RAM ↗
+                </span>
+                @if (systemInfo(); as sys) {
+                  <span class="text-[10px] text-slate-400">
+                    {{ formatBytes(sys.memory.usedBytes) }} / {{ formatBytes(sys.memory.totalBytes) }}
+                  </span>
+                }
+              </button>
             </div>
+
+            <!-- CPU Model Info -->
+            @if (systemInfo(); as sys) {
+              <div
+                class="mt-3 truncate border-t border-white/10 pt-2.5 text-[11px] text-slate-300"
+                [title]="sys.cpu.model"
+              >
+                🖥️ {{ sys.cpu.model }}
+              </div>
+            }
 
             <!-- Live Network Speed Bar -->
             <div
@@ -484,6 +515,20 @@ type ActiveWindow =
                   🛍️
                 </div>
                 <span class="mt-3 text-xs font-medium text-white">App Store</span>
+              </button>
+
+              <!-- Core Files (File Manager) Tile -->
+              <button
+                type="button"
+                (click)="activeWindow.set('files')"
+                class="group flex flex-col items-center justify-center rounded-2xl border border-white/15 bg-white/[0.08] p-5 text-center shadow-lg backdrop-blur-xl transition hover:-translate-y-0.5 hover:border-sky-400/50 hover:bg-white/[0.14]"
+              >
+                <div
+                  class="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-cyan-400 to-blue-500 text-2xl shadow-lg transition group-hover:scale-105"
+                >
+                  📁
+                </div>
+                <span class="mt-3 text-xs font-medium text-white">Files</span>
               </button>
 
               <!-- Core Storage Tile -->
@@ -678,6 +723,9 @@ type ActiveWindow =
                 @case ('store') {
                   <app-hub-search (inspected)="openInspectedEditor($event)" />
                 }
+                @case ('files') {
+                  <app-file-manager />
+                }
                 @case ('storage') {
                   <app-storage-manager />
                 }
@@ -753,6 +801,86 @@ type ActiveWindow =
           </div>
         </div>
       }
+      <!-- RAM Processes Modal -->
+      @if (ramModalOpen()) {
+        <div
+          class="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm"
+        >
+          <div
+            class="flex h-[82vh] w-full max-w-4xl flex-col overflow-hidden rounded-3xl border border-white/15 bg-slate-950 shadow-2xl"
+          >
+            <div
+              class="flex items-center justify-between border-b border-white/10 px-6 py-4"
+            >
+              <div>
+                <h3 class="text-base font-semibold text-white">
+                  Utilizzo Memoria RAM & Processi
+                </h3>
+                @if (systemInfo(); as sys) {
+                  <p class="text-xs text-slate-400">
+                    Occupata: {{ formatBytes(sys.memory.usedBytes) }} · Disponibile: {{ formatBytes(sys.memory.availableBytes) }} · Totale: {{ formatBytes(sys.memory.totalBytes) }}
+                  </p>
+                }
+              </div>
+              <div class="flex items-center gap-2">
+                <button
+                  type="button"
+                  (click)="loadRamProcesses()"
+                  class="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-200 hover:bg-white/10"
+                >
+                  Aggiorna
+                </button>
+                <button
+                  type="button"
+                  (click)="ramModalOpen.set(false)"
+                  class="rounded-lg p-1.5 text-slate-400 hover:bg-white/10 hover:text-white"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+
+            <div class="flex-1 overflow-y-auto p-4">
+              <table class="w-full text-left text-xs">
+                <thead class="border-b border-white/10 text-[11px] uppercase text-slate-400">
+                  <tr>
+                    <th class="px-3 py-2.5">PID</th>
+                    <th class="px-3 py-2.5">Utente</th>
+                    <th class="px-3 py-2.5">Processo</th>
+                    <th class="px-3 py-2.5 text-right">RAM</th>
+                    <th class="px-3 py-2.5 text-right">% RAM</th>
+                    <th class="px-3 py-2.5 text-right">% CPU</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-white/5">
+                  @for (proc of ramProcesses(); track proc.pid) {
+                    <tr class="hover:bg-white/[0.03]">
+                      <td class="px-3 py-2 font-mono text-slate-400">{{ proc.pid }}</td>
+                      <td class="px-3 py-2 text-slate-300">{{ proc.user }}</td>
+                      <td class="px-3 py-2">
+                        <div class="font-semibold text-white">{{ proc.command }}</div>
+                        <div class="max-w-md truncate font-mono text-[10px] text-slate-500">
+                          {{ proc.args }}
+                        </div>
+                      </td>
+                      <td class="px-3 py-2 text-right font-mono text-emerald-300">
+                        {{ formatBytes(proc.rssBytes) }}
+                      </td>
+                      <td class="px-3 py-2 text-right font-mono text-slate-200">
+                        {{ proc.memPercent }}%
+                      </td>
+                      <td class="px-3 py-2 text-right font-mono text-sky-300">
+                        {{ proc.cpuPercent }}%
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      }
+
       <!-- Live Device & System Toast Notifications -->
       @if (activeToasts().length > 0) {
         <div class="fixed right-4 top-14 z-50 flex w-80 flex-col gap-2">
@@ -791,6 +919,8 @@ export class AppComponent implements OnInit, OnDestroy {
   notifications = signal<SystemNotification[]>([]);
   activeToasts = signal<SystemNotification[]>([]);
   notificationsOpen = signal(false);
+  ramModalOpen = signal(false);
+  ramProcesses = signal<ProcessMemoryInfo[]>([]);
   desktopSearch = '';
 
   uiSettings = signal<NasSettingsResponse['settings']>({
@@ -857,6 +987,18 @@ export class AppComponent implements OnInit, OnDestroy {
 
   dismissToast(id: string): void {
     this.activeToasts.update((list) => list.filter((t) => t.id !== id));
+  }
+
+  openRamProcessesModal(): void {
+    this.ramModalOpen.set(true);
+    this.loadRamProcesses();
+  }
+
+  loadRamProcesses(): void {
+    this.api.getTopMemoryProcesses().subscribe({
+      next: (res) => this.ramProcesses.set(res.processes),
+      error: () => {},
+    });
   }
 
   private updateClock(): void {
@@ -951,6 +1093,7 @@ export class AppComponent implements OnInit, OnDestroy {
   getWindowTitle(win: Exclude<ActiveWindow, null>): string {
     const titles: Record<Exclude<ActiveWindow, null>, string> = {
       store: 'Docker App Store',
+      files: 'Files — File Manager',
       storage: 'Storage & Dischi',
       shares: 'Condivisioni & Protocolli',
       users: 'Utenti & Permessi',

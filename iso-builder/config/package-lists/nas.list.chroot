@@ -6,6 +6,7 @@ iw
 rfkill
 openssh-server
 sudo
+ufw
 avahi-daemon
 ca-certificates
 curl

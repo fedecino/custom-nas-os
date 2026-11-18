@@ -327,6 +327,48 @@ export interface ListeningPort {
   processName: string;
   pid: string | null;
   containerName: string | null;
+  description: string;
+}
+
+function describeListeningPort(
+  processName: string,
+  port: number,
+  containerName: string | null
+): string {
+  if (containerName) {
+    return `Container Docker "${containerName}" esposto sulla porta ${port}`;
+  }
+  const byProcess: Record<string, string> = {
+    nginx: 'Web Server & Reverse Proxy NAS-OS (interfaccia grafica Web)',
+    node: 'NAS-OS Backend API Server (comunicazione interna con Nginx)',
+    sshd: 'OpenSSH Server — Accesso terminale remoto SSH e trasferimento file SFTP',
+    smbd: 'Samba (SMB/CIFS) — Condivisione cartelle di rete per Windows, macOS e Linux',
+    nmbd: 'Samba NetBIOS — Annuncio e risoluzione nomi di rete Windows',
+    nfsd: 'NFS Server — Condivisione cartelle ad alte prestazioni per Linux/Unix',
+    'rpc.mountd': 'NFS Mount Daemon — Gestione mount delle condivisioni NFS',
+    rpcbind: 'RPC Portmapper — Servizio di supporto per il protocollo NFS',
+    vsftpd: 'FTP Server — Trasferimento file tramite protocollo FTP',
+    'avahi-daemon': 'Avahi mDNS — Rilevamento automatico del NAS sulla rete locale (.local)',
+    'systemd-resolve': 'Risoluzione DNS locale di sistema',
+    'docker-proxy': 'Docker Proxy — Inoltro traffico verso un container Docker',
+    dockerd: 'Docker Engine Daemon',
+  };
+  if (byProcess[processName]) return byProcess[processName];
+
+  const byPort: Record<number, string> = {
+    21: 'FTP — Trasferimento file',
+    22: 'SSH / SFTP — Accesso terminale e trasferimento file cifrato',
+    53: 'DNS — Risoluzione nomi di dominio',
+    80: 'HTTP — Interfaccia Web NAS-OS',
+    111: 'RPCBind — Supporto NFS',
+    139: 'SMB/NetBIOS — Condivisione file Windows',
+    443: 'HTTPS — Traffico Web cifrato',
+    445: 'SMB/CIFS — Condivisione file di rete',
+    2049: 'NFS — Condivisione file Linux/Unix',
+    3000: 'API Server NAS-OS',
+    5353: 'mDNS — Rilevamento dispositivi in LAN',
+  };
+  return byPort[port] ?? `Servizio di sistema (${processName})`;
 }
 
 router.get('/ports', async (_req: Request, res: Response) => {
@@ -396,6 +438,7 @@ router.get('/ports', async (_req: Request, res: Response) => {
         processName,
         pid,
         containerName,
+        description: describeListeningPort(processName, port, containerName),
       });
     }
 
@@ -492,6 +535,161 @@ router.get('/logs', async (req: Request, res: Response) => {
     res.json({ unit, lines: stdout.split('\n').filter(Boolean) });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Failed to read system logs';
+    res.status(500).json({ error: message });
+  }
+});
+
+export interface FirewallRule {
+  index: number;
+  to: string;
+  action: string;
+  from: string;
+}
+
+async function readFirewallStatus(): Promise<{
+  installed: boolean;
+  enabled: boolean;
+  rules: FirewallRule[];
+}> {
+  try {
+    const { stdout } = await execFileAsync('ufw', ['status', 'numbered'], {
+      timeout: 5000,
+    });
+    const enabled = /^Status:\s+active/m.test(stdout);
+    const rules: FirewallRule[] = [];
+
+    for (const line of stdout.split('\n')) {
+      const m = line.match(/^\[\s*(\d+)\]\s+(.+?)\s{2,}(ALLOW IN|DENY IN|REJECT IN|ALLOW|DENY|REJECT|LIMIT IN)\s+(.+)$/i);
+      if (m) {
+        rules.push({
+          index: Number(m[1]),
+          to: m[2].trim(),
+          action: m[3].trim(),
+          from: m[4].trim(),
+        });
+      }
+    }
+
+    return { installed: true, enabled, rules };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : '';
+    if (msg.includes('ENOENT')) {
+      return { installed: false, enabled: false, rules: [] };
+    }
+    throw err;
+  }
+}
+
+router.get('/firewall', async (_req: Request, res: Response) => {
+  try {
+    const status = await readFirewallStatus();
+    res.json(status);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Failed to read firewall status';
+    res.status(500).json({ error: message });
+  }
+});
+
+router.post('/firewall/toggle', async (req: Request, res: Response) => {
+  const enabled = Boolean((req.body as { enabled?: boolean }).enabled);
+  try {
+    if (enabled) {
+      // Ensure Web UI (80) and SSH (22) are always allowed before enabling UFW
+      await execFileAsync('ufw', ['allow', '80/tcp'], { timeout: 5000 });
+      await execFileAsync('ufw', ['allow', '22/tcp'], { timeout: 5000 });
+      await execFileAsync('ufw', ['--force', 'enable'], { timeout: 8000 });
+    } else {
+      await execFileAsync('ufw', ['disable'], { timeout: 8000 });
+    }
+    const status = await readFirewallStatus();
+    res.json({ success: true, ...status });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Failed to toggle firewall';
+    res.status(500).json({ error: message });
+  }
+});
+
+router.post('/firewall/rules', async (req: Request, res: Response) => {
+  const { port, protocol, action } = req.body as {
+    port?: string | number;
+    protocol?: 'tcp' | 'udp' | 'any';
+    action?: 'allow' | 'deny';
+  };
+
+  const portStr = String(port ?? '').trim();
+  if (!/^\d{1,5}(:\d{1,5})?$/.test(portStr)) {
+    res.status(400).json({ error: 'Porta non valida (usa es. 8080 o 8000:8010)' });
+    return;
+  }
+  const act = action === 'deny' ? 'deny' : 'allow';
+  const target =
+    protocol === 'tcp' || protocol === 'udp' ? `${portStr}/${protocol}` : portStr;
+
+  try {
+    await execFileAsync('ufw', [act, target], { timeout: 5000 });
+    const status = await readFirewallStatus();
+    res.json({ success: true, ...status });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Failed to add firewall rule';
+    res.status(500).json({ error: message });
+  }
+});
+
+router.delete('/firewall/rules/:index', async (req: Request, res: Response) => {
+  const index = Number(req.params.index);
+  if (!Number.isInteger(index) || index < 1) {
+    res.status(400).json({ error: 'Invalid rule index' });
+    return;
+  }
+
+  try {
+    await execFileAsync('ufw', ['--force', 'delete', String(index)], {
+      timeout: 5000,
+    });
+    const status = await readFirewallStatus();
+    res.json({ success: true, ...status });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Failed to delete firewall rule';
+    res.status(500).json({ error: message });
+  }
+});
+
+router.get('/processes', async (_req: Request, res: Response) => {
+  try {
+    const [mem, psRes] = await Promise.all([
+      getMemoryInfo(),
+      execFileAsync(
+        'ps',
+        ['-eo', 'pid,user:20,comm,%mem,rss,%cpu,args', '--sort=-rss'],
+        { timeout: 5000 }
+      ),
+    ]);
+
+    const processes = psRes.stdout
+      .split('\n')
+      .slice(1, 41)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => {
+        const match = line.match(
+          /^(\d+)\s+(\S+)\s+(\S+)\s+([\d.]+)\s+(\d+)\s+([\d.]+)\s+(.*)$/
+        );
+        if (!match) return null;
+        return {
+          pid: Number(match[1]),
+          user: match[2],
+          command: match[3],
+          memPercent: Number(match[4]),
+          rssBytes: Number(match[5]) * 1024,
+          cpuPercent: Number(match[6]),
+          args: match[7],
+        };
+      })
+      .filter((p): p is NonNullable<typeof p> => p !== null);
+
+    res.json({ memory: mem, processes });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Failed to list processes';
     res.status(500).json({ error: message });
   }
 });
