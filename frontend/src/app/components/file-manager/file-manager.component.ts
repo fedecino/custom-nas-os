@@ -494,6 +494,9 @@ export class FileManagerComponent implements OnInit {
   parentPath = signal<string | null>('/');
   items = signal<FileEntry[]>([]);
   mountedDisks = signal<MountedDisk[]>([]);
+  isAdmin = signal(true);
+  userHomePath = signal('/DATA');
+  allowedRoots = signal<Array<{ label: string; path: string; mode: 'ro' | 'rw' }>>([]);
   selectedPaths = signal<Set<string>>(new Set());
   anchorIndex = signal<number | null>(null);
   focusIndex = signal<number | null>(null);
@@ -705,11 +708,25 @@ export class FileManagerComponent implements OnInit {
   }
 
   ngOnInit(): void {
-    this.api.getStorageDisks().subscribe({
-      next: (res) => this.mountedDisks.set(res.mounts),
-      error: () => { },
+    this.api.getFileRoots().subscribe({
+      next: (ctx) => {
+        this.isAdmin.set(ctx.isAdmin);
+        this.userHomePath.set(ctx.homePath);
+        this.allowedRoots.set(ctx.allowedRoots ?? []);
+        if (ctx.isAdmin) {
+          this.api.getStorageDisks().subscribe({
+            next: (res) => this.mountedDisks.set(res.mounts),
+            error: () => {},
+          });
+          this.openDir('/DATA');
+        } else {
+          this.openDir(ctx.homePath);
+        }
+      },
+      error: () => {
+        this.openDir('/DATA');
+      },
     });
-    this.openDir('/DATA');
   }
 
     onItemContextMenu(event: MouseEvent, item: FileEntry, idx: number): void {
@@ -736,7 +753,16 @@ export class FileManagerComponent implements OnInit {
   }
 
   quickRoots(): Array<{ label: string; path: string; icon: string }> {
+    if (!this.isAdmin()) {
+      return this.allowedRoots().map((r, idx) => ({
+        label: idx === 0 ? `La mia Home` : `${r.label}${r.mode === 'ro' ? ' (RO)' : ''}`,
+        path: r.path,
+        icon: idx === 0 ? '🏠' : '🔗',
+      }));
+    }
+
     const base = [
+      { label: 'La mia Home', path: this.userHomePath(), icon: '👤' },
       { label: '/DATA', path: '/DATA', icon: '🏠' },
       { label: 'Media', path: '/DATA/Media', icon: '🎬' },
       { label: 'Shares', path: '/DATA/Shares', icon: '📁' },

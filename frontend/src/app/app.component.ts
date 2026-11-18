@@ -1,4 +1,4 @@
-import { Component, OnDestroy, OnInit, inject, signal } from '@angular/core';
+import { Component, HostListener, OnDestroy, OnInit, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import {
@@ -100,7 +100,7 @@ type ActiveWindow =
         <div class="relative flex items-center gap-3">
           <button
             type="button"
-            (click)="menuOpen.set(!menuOpen())"
+            (click)="toggleHamburgerMenu($event)"
             title="Menu SiloOs"
             class="flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-slate-200 transition hover:bg-white/15"
           >
@@ -120,6 +120,7 @@ type ActiveWindow =
 
           @if (menuOpen()) {
             <div
+              (click)="$event.stopPropagation()"
               class="absolute left-0 top-11 z-50 w-60 rounded-2xl border border-[#1e293b] bg-[#0f172a]/95 p-2 shadow-2xl backdrop-blur-xl"
             >
               @for (item of menuItems; track item.id) {
@@ -140,7 +141,7 @@ type ActiveWindow =
           <div class="relative">
             <button
               type="button"
-              (click)="notificationsOpen.set(!notificationsOpen())"
+              (click)="toggleNotificationsMenu($event)"
               title="Notifiche di sistema"
               class="relative flex h-8 w-8 items-center justify-center rounded-lg text-slate-200 transition hover:bg-white/15"
             >
@@ -153,6 +154,7 @@ type ActiveWindow =
             </button>
             @if (notificationsOpen()) {
               <div
+                (click)="$event.stopPropagation()"
                 class="absolute right-0 top-10 z-50 w-80 rounded-2xl border border-[#1e293b] bg-[#0f172a]/95 p-3 shadow-2xl backdrop-blur-xl"
               >
                 <div class="mb-2 flex items-center justify-between text-xs font-semibold text-white">
@@ -630,7 +632,7 @@ type ActiveWindow =
                   <!-- Context Menu Trigger -->
                   <button
                     type="button"
-                    (click)="toggleStackMenu(stack.name)"
+                    (click)="toggleStackMenu(stack.name, $event)"
                     class="absolute right-2.5 top-2.5 rounded-lg px-1.5 py-0.5 text-xs text-slate-300 hover:bg-white/15 hover:text-white"
                     title="Opzioni app"
                   >
@@ -665,6 +667,7 @@ type ActiveWindow =
                   <!-- Quick Dropdown Menu -->
                   @if (openMenuStack() === stack.name) {
                     <div
+                      (click)="$event.stopPropagation()"
                       class="absolute right-2 top-9 z-30 w-36 rounded-xl border border-white/15 bg-slate-900/95 p-1.5 text-left text-xs shadow-2xl backdrop-blur-xl"
                     >
                       @if (getWebPort(stack); as port) {
@@ -1228,8 +1231,42 @@ onSearchSubmit(): void {
 }
   }
 
-toggleStackMenu(name: string): void {
-  this.openMenuStack.set(this.openMenuStack() === name ? null : name);
+@HostListener('document:click')
+@HostListener('document:keydown.escape')
+closeAllMenus(): void {
+  if (this.menuOpen()) this.menuOpen.set(false);
+  if (this.notificationsOpen()) this.notificationsOpen.set(false);
+  if (this.openMenuStack()) this.openMenuStack.set(null);
+}
+
+toggleHamburgerMenu(event: MouseEvent): void {
+  event.stopPropagation();
+  const next = !this.menuOpen();
+  this.menuOpen.set(next);
+  if (next) {
+    this.notificationsOpen.set(false);
+    this.openMenuStack.set(null);
+  }
+}
+
+toggleNotificationsMenu(event: MouseEvent): void {
+  event.stopPropagation();
+  const next = !this.notificationsOpen();
+  this.notificationsOpen.set(next);
+  if (next) {
+    this.menuOpen.set(false);
+    this.openMenuStack.set(null);
+  }
+}
+
+toggleStackMenu(name: string, event?: MouseEvent): void {
+  event?.stopPropagation();
+  const next = this.openMenuStack() === name ? null : name;
+  this.openMenuStack.set(next);
+  if (next) {
+    this.menuOpen.set(false);
+    this.notificationsOpen.set(false);
+  }
 }
 
 wallpaperClass(): string {

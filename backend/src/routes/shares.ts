@@ -15,6 +15,8 @@ const SAMBA_NAS_CONF = path.join(SAMBA_CONF_DIR, 'nas-os.conf');
 const NFS_EXPORTS_DIR = '/etc/exports.d';
 const NFS_NAS_EXPORTS = path.join(NFS_EXPORTS_DIR, 'nas-os.exports');
 
+export type ShareUserPermission = 'none' | 'ro' | 'rw';
+
 export interface NasShare {
   name: string;
   path: string;
@@ -25,6 +27,7 @@ export interface NasShare {
   readOnly: boolean;
   guestOk: boolean;
   validUsers: string[];
+  userPermissions?: Record<string, ShareUserPermission>;
   nfsClients: string;
 }
 
@@ -59,19 +62,50 @@ async function applySystemShareConfigs(shares: NasShare[]): Promise<{
   const smbBlocks = shares
     .filter((s) => s.smb)
     .map((s) => {
+      const permEntries = Object.entries(s.userPermissions ?? {}).filter(
+        ([u]) => /^[a-z_][a-z0-9_-]{0,30}$/.test(u)
+      );
+      const hasPerUserPerms = !s.guestOk && permEntries.length > 0;
+      const roUsers = permEntries.filter(([, p]) => p === 'ro').map(([u]) => u);
+      const rwUsers = permEntries.filter(([, p]) => p === 'rw').map(([u]) => u);
+      const allowedUsers = [...roUsers, ...rwUsers];
+
       const lines = [
         `[${s.name}]`,
         `   comment = ${s.comment || s.name}`,
         `   path = ${s.path}`,
-        `   browseable = yes`,
-        `   read only = ${s.readOnly ? 'yes' : 'no'}`,
+        `   browseable = ${hasPerUserPerms && allowedUsers.length === 0 ? 'no' : 'yes'}`,
+        `   access based share enum = yes`,
         `   guest ok = ${s.guestOk ? 'yes' : 'no'}`,
         `   create mask = 0664`,
         `   directory mask = 0775`,
       ];
-      if (!s.guestOk && s.validUsers.length > 0) {
-        lines.push(`   valid users = ${s.validUsers.join(' ')}`);
+
+      if (!s.guestOk) {
+        lines.push(`   force user = root`);
       }
+
+      if (hasPerUserPerms) {
+        if (allowedUsers.length > 0) {
+          lines.push(`   valid users = ${allowedUsers.join(' ')}`);
+          if (s.readOnly) {
+            lines.push(`   read only = yes`);
+          } else {
+            lines.push(`   read only = yes`);
+            if (rwUsers.length > 0) lines.push(`   write list = ${rwUsers.join(' ')}`);
+            if (roUsers.length > 0) lines.push(`   read list = ${roUsers.join(' ')}`);
+          }
+        } else {
+          lines.push(`   valid users = __no_access__`);
+          lines.push(`   read only = yes`);
+        }
+      } else {
+        lines.push(`   read only = ${s.readOnly ? 'yes' : 'no'}`);
+        if (!s.guestOk && s.validUsers.length > 0) {
+          lines.push(`   valid users = ${s.validUsers.join(' ')}`);
+        }
+      }
+
       return lines.join('\n');
     })
     .join('\n\n');
@@ -196,6 +230,10 @@ router.post('/', async (req: Request, res: Response) => {
       readOnly: Boolean(body.readOnly ?? false),
       guestOk: Boolean(body.guestOk ?? false),
       validUsers: Array.isArray(body.validUsers) ? body.validUsers : [],
+      userPermissions:
+        body.userPermissions && typeof body.userPermissions === 'object'
+          ? body.userPermissions
+          : undefined,
       nfsClients: String(body.nfsClients ?? '*'),
     };
 
@@ -211,6 +249,49 @@ router.post('/', async (req: Request, res: Response) => {
     res.json({ success: true, share: newShare, ...applyResult });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Failed to create share';
+    res.status(500).json({ error: message });
+  }
+});
+
+router.put('/:name/permissions', async (req: Request, res: Response) => {
+  const name = String(req.params.name ?? '').trim();
+  const body = req.body as {
+    userPermissions?: Record<string, ShareUserPermission>;
+    readOnly?: boolean;
+    guestOk?: boolean;
+  };
+
+  try {
+    const shares = await readShares();
+    const target = shares.find((s) => s.name === name);
+    if (!target) {
+      res.status(404).json({ error: `Condivisione "${name}" non trovata` });
+      return;
+    }
+
+    if (typeof body.readOnly === 'boolean') target.readOnly = body.readOnly;
+    if (typeof body.guestOk === 'boolean') target.guestOk = body.guestOk;
+    if (body.userPermissions && typeof body.userPermissions === 'object') {
+      const sanitized: Record<string, ShareUserPermission> = {};
+      for (const [user, perm] of Object.entries(body.userPermissions)) {
+        if (
+          /^[a-z_][a-z0-9_-]{0,30}$/.test(user) &&
+          (perm === 'none' || perm === 'ro' || perm === 'rw')
+        ) {
+          sanitized[user] = perm;
+        }
+      }
+      target.userPermissions = sanitized;
+      target.validUsers = Object.entries(sanitized)
+        .filter(([, p]) => p === 'ro' || p === 'rw')
+        .map(([u]) => u);
+    }
+
+    await saveShares(shares);
+    const applyResult = await applySystemShareConfigs(shares);
+    res.json({ success: true, share: target, ...applyResult });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Aggiornamento permessi fallito';
     res.status(500).json({ error: message });
   }
 });

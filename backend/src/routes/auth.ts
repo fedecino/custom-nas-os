@@ -3,7 +3,8 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { NextFunction, Request, Response, Router } from 'express';
 import { DATA_DIR } from '../services/docker.js';
-import { verifySudoUserPassword } from './settings.js';
+import { isUserAdmin, verifyLinuxUserPassword } from './settings.js';
+import { setSambaPassword } from './users.js';
 
 const router = Router();
 const COOKIE_NAME = 'silo_session';
@@ -116,14 +117,25 @@ export async function requireAuth(
 
 router.get('/status', async (req: Request, res: Response) => {
   if (process.env.SILO_DEV_NO_AUTH === '1') {
-    res.json({ authenticated: true, username: 'dev' });
+    const homePath = path.join(DATA_DIR, 'Homes', 'dev');
+    await fs.mkdir(homePath, { recursive: true }).catch(() => {});
+    res.json({ authenticated: true, username: 'dev', isAdmin: true, homePath });
     return;
   }
   const cookies = parseCookies(req.headers.cookie);
   const session = await verifyToken(cookies[COOKIE_NAME]);
+  if (!session) {
+    res.json({ authenticated: false, username: null, isAdmin: false, homePath: null });
+    return;
+  }
+  const homePath = path.join(DATA_DIR, 'Homes', session.username);
+  await fs.mkdir(homePath, { recursive: true }).catch(() => {});
+  const isAdmin = await isUserAdmin(session.username);
   res.json({
-    authenticated: Boolean(session),
-    username: session?.username ?? null,
+    authenticated: true,
+    username: session.username,
+    isAdmin,
+    homePath,
   });
 });
 
@@ -141,11 +153,18 @@ router.post('/login', async (req: Request, res: Response) => {
     return;
   }
 
-  const valid = await verifySudoUserPassword(cleanUser, cleanPass);
+  const valid = await verifyLinuxUserPassword(cleanUser, cleanPass);
   if (!valid) {
-    res.status(401).json({ error: 'Username o password non validi (richiesti privilegi amministratore)' });
+    res.status(401).json({ error: 'Username o password non validi' });
     return;
   }
+
+  // Keep Samba tdbsam password in sync for system admin accounts created outside the UI
+  await setSambaPassword(cleanUser, cleanPass).catch(() => {});
+
+  const homePath = path.join(DATA_DIR, 'Homes', cleanUser);
+  await fs.mkdir(homePath, { recursive: true }).catch(() => {});
+  const isAdmin = await isUserAdmin(cleanUser);
 
   const token = await signToken(cleanUser);
   res.cookie(COOKIE_NAME, token, {
@@ -155,7 +174,7 @@ router.post('/login', async (req: Request, res: Response) => {
     maxAge: SESSION_TTL_MS,
   });
 
-  res.json({ authenticated: true, username: cleanUser });
+  res.json({ authenticated: true, username: cleanUser, isAdmin, homePath });
 });
 
 router.post('/logout', (_req: Request, res: Response) => {

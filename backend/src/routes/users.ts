@@ -1,7 +1,9 @@
 import { execFile, spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
+import path from 'node:path';
 import { promisify } from 'node:util';
 import { Router, Request, Response } from 'express';
+import { DATA_DIR } from '../services/docker.js';
 
 const execFileAsync = promisify(execFile);
 const router = Router();
@@ -31,7 +33,7 @@ async function setLinuxPassword(username: string, password: string): Promise<voi
   });
 }
 
-async function setSambaPassword(username: string, password: string): Promise<void> {
+export async function setSambaPassword(username: string, password: string): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     const child = spawn('smbpasswd', ['-a', '-s', username]);
     child.stdin.write(`${password}\n${password}\n`);
@@ -143,6 +145,7 @@ router.post('/', async (req: Request, res: Response) => {
 
     await execFileAsync('useradd', args, { timeout: 10000 });
     await setLinuxPassword(cleanUser, password);
+    await fs.mkdir(path.join(DATA_DIR, 'Homes', cleanUser), { recursive: true }).catch(() => {});
 
     const warnings: string[] = [];
     if (sambaAccess !== false) {

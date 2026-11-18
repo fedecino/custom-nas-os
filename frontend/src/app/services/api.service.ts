@@ -122,6 +122,8 @@ export interface BlockDevice {
   children?: BlockDevice[];
 }
 
+export type ShareUserPermission = 'none' | 'ro' | 'rw';
+
 export interface NasShare {
   name: string;
   path: string;
@@ -132,6 +134,7 @@ export interface NasShare {
   readOnly: boolean;
   guestOk: boolean;
   validUsers: string[];
+  userPermissions?: Record<string, ShareUserPermission>;
   nfsClients: string;
 }
 
@@ -518,6 +521,20 @@ export class ApiService {
     return this.http.get<SharesResponse>('/api/shares');
   }
 
+  updateSharePermissions(
+    name: string,
+    payload: {
+      userPermissions: Record<string, ShareUserPermission>;
+      readOnly?: boolean;
+      guestOk?: boolean;
+    }
+  ): Observable<{ success: boolean; share: NasShare; warnings: string[] }> {
+    return this.http.put<{ success: boolean; share: NasShare; warnings: string[] }>(
+      `/api/shares/${encodeURIComponent(name)}/permissions`,
+      payload
+    );
+  }
+
   saveShare(share: Partial<NasShare>): Observable<{ success: boolean; warnings?: string[] }> {
     return this.http.post<{ success: boolean; warnings?: string[] }>('/api/shares', share);
   }
@@ -895,6 +912,20 @@ export class ApiService {
       xhr.onerror = () => reject(new Error('Errore di rete durante upload'));
       xhr.send(file);
     });
+  }
+
+  getFileRoots(): Observable<{
+    username: string;
+    isAdmin: boolean;
+    homePath: string;
+    allowedRoots: Array<{ label: string; path: string; mode: 'ro' | 'rw' }>;
+  }> {
+    return this.http.get<{
+      username: string;
+      isAdmin: boolean;
+      homePath: string;
+      allowedRoots: Array<{ label: string; path: string; mode: 'ro' | 'rw' }>;
+    }>('/api/files/roots');
   }
 
   checkSystemUpdates(): Observable<SystemUpdateStatus> {

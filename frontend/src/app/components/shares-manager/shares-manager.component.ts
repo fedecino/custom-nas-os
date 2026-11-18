@@ -6,6 +6,8 @@ import {
   DirectoryBrowseResponse,
   MountedDisk,
   NasShare,
+  NasUser,
+  ShareUserPermission,
   SharesResponse,
 } from '../../services/api.service';
 
@@ -180,15 +182,32 @@ import {
                     @if (s.readOnly) {
                       <span class="rounded bg-white/10 px-1.5 py-0.5 text-[10px] text-slate-300">RO</span>
                     }
+                    @if (s.guestOk) {
+                      <span class="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] text-emerald-300">Guest</span>
+                    } @else if (s.userPermissions) {
+                      <span class="rounded bg-purple-500/15 px-1.5 py-0.5 text-[10px] text-purple-300">
+                        Permessi per utente
+                      </span>
+                    }
                   </div>
                   <div class="font-mono text-[11px] text-slate-400">{{ s.path }}</div>
                 </div>
-                <button
-                  (click)="removeShare(s.name)"
-                  class="rounded-lg bg-rose-500/15 px-3 py-1.5 text-xs text-rose-300 hover:bg-rose-500/25"
-                >
-                  Elimina
-                </button>
+                <div class="flex items-center gap-2">
+                  <button
+                    type="button"
+                    (click)="openPermissionsModal(s)"
+                    class="rounded-lg border border-[#38bdf8]/40 bg-[#38bdf8]/15 px-3 py-1.5 text-xs font-medium text-[#38bdf8] hover:bg-[#38bdf8]/25"
+                  >
+                    🔐 Permessi Utenti
+                  </button>
+                  <button
+                    type="button"
+                    (click)="removeShare(s.name)"
+                    class="rounded-lg bg-rose-500/15 px-3 py-1.5 text-xs text-rose-300 hover:bg-rose-500/25"
+                  >
+                    Elimina
+                  </button>
+                </div>
               </div>
             }
           </div>
@@ -319,6 +338,139 @@ import {
           </div>
         </div>
       }
+
+      <!-- Share Per-User Permissions Modal -->
+      @if (permModalShare(); as share) {
+        <div
+          class="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm"
+          (click)="permModalShare.set(null)"
+        >
+          <div
+            class="w-full max-w-xl rounded-2xl border border-white/15 bg-[#0f172a]/95 p-5 shadow-2xl"
+            (click)="$event.stopPropagation()"
+          >
+            <div class="flex items-start justify-between gap-3">
+              <div>
+                <h3 class="text-sm font-semibold text-white">
+                  Permessi Condivisione "{{ share.name }}"
+                </h3>
+                <p class="mt-0.5 font-mono text-[11px] text-[#38bdf8]">
+                  {{ share.path }}
+                </p>
+              </div>
+              <button
+                type="button"
+                (click)="permModalShare.set(null)"
+                class="rounded-lg p-1 text-slate-400 hover:bg-white/10 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div class="mt-4 flex flex-wrap gap-4 rounded-xl border border-white/10 bg-black/30 px-3.5 py-2.5 text-xs text-slate-300">
+              <label class="flex items-center gap-2">
+                <input type="checkbox" [(ngModel)]="permGuestOk" class="accent-[#38bdf8]" />
+                <span>Accesso Guest (senza password)</span>
+              </label>
+              <label class="flex items-center gap-2">
+                <input type="checkbox" [(ngModel)]="permReadOnly" class="accent-[#38bdf8]" />
+                <span>Sola lettura globale</span>
+              </label>
+            </div>
+
+            @if (permGuestOk) {
+              <div class="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3.5 py-2.5 text-xs text-amber-200">
+                Con <strong>Accesso Guest</strong> attivo, chiunque sulla rete può accedere senza restrizioni per utente. Disattiva Guest per gestire i permessi singoli.
+              </div>
+            } @else {
+              <div class="mt-4 space-y-2 max-h-72 overflow-y-auto pr-1">
+                <div class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                  Accesso per singolo utente NAS
+                </div>
+                @if (users().length === 0) {
+                  <p class="text-xs text-slate-400">
+                    Nessun utente trovato. Crea un utente in Utenti & Permessi.
+                  </p>
+                } @else {
+                  @for (u of users(); track u.username) {
+                    <div
+                      class="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-white/10 bg-black/25 px-3.5 py-2.5"
+                    >
+                      <div>
+                        <span class="font-mono text-xs font-semibold text-white">
+                          {{ u.username }}
+                        </span>
+                        @if (u.groups.includes('sudo')) {
+                          <span class="ml-1.5 rounded bg-[#38bdf8]/15 px-1.5 py-0.5 text-[10px] text-[#38bdf8]">
+                            Admin
+                          </span>
+                        }
+                      </div>
+
+                      <div class="inline-flex rounded-lg border border-white/10 bg-slate-950/80 p-0.5 text-[11px]">
+                        <button
+                          type="button"
+                          (click)="permDraft[u.username] = 'none'"
+                          class="rounded-md px-2.5 py-1 transition"
+                          [ngClass]="
+                            permDraft[u.username] === 'none'
+                              ? 'bg-rose-500 text-white font-semibold'
+                              : 'text-slate-400 hover:text-white'
+                          "
+                        >
+                          Nascosta / No
+                        </button>
+                        <button
+                          type="button"
+                          (click)="permDraft[u.username] = 'ro'"
+                          class="rounded-md px-2.5 py-1 transition"
+                          [ngClass]="
+                            permDraft[u.username] === 'ro'
+                              ? 'bg-amber-400 text-slate-950 font-semibold'
+                              : 'text-slate-400 hover:text-white'
+                          "
+                        >
+                          Solo Lettura
+                        </button>
+                        <button
+                          type="button"
+                          (click)="permDraft[u.username] = 'rw'"
+                          class="rounded-md px-2.5 py-1 transition"
+                          [ngClass]="
+                            permDraft[u.username] === 'rw'
+                              ? 'bg-[#00ff88] text-[#062417] font-semibold'
+                              : 'text-slate-400 hover:text-white'
+                          "
+                        >
+                          Lettura & Scrittura
+                        </button>
+                      </div>
+                    </div>
+                  }
+                }
+              </div>
+            }
+
+            <div class="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                (click)="permModalShare.set(null)"
+                class="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-xs text-slate-300 hover:bg-white/10"
+              >
+                Annulla
+              </button>
+              <button
+                type="button"
+                (click)="savePermissions()"
+                [disabled]="savingPerms()"
+                class="rounded-xl bg-[#00ff88] px-4 py-2 text-xs font-semibold text-[#062417] hover:brightness-110 disabled:opacity-50"
+              >
+                {{ savingPerms() ? 'Salvataggio...' : 'Salva Permessi' }}
+              </button>
+            </div>
+          </div>
+        </div>
+      }
     </div>
   `,
 })
@@ -326,9 +478,16 @@ export class SharesManagerComponent implements OnInit {
   private readonly api = inject(ApiService);
 
   shares = signal<NasShare[]>([]);
+  users = signal<NasUser[]>([]);
   services = signal<SharesResponse['services'] | null>(null);
   feedback = signal<string | null>(null);
   feedbackOk = signal(true);
+
+  permModalShare = signal<NasShare | null>(null);
+  permDraft: Record<string, ShareUserPermission> = {};
+  permGuestOk = false;
+  permReadOnly = false;
+  savingPerms = signal(false);
 
   browserOpen = signal(false);
   browserData = signal<DirectoryBrowseResponse | null>(null);
@@ -359,6 +518,63 @@ export class SharesManagerComponent implements OnInit {
       },
       error: () => {},
     });
+    this.api.getUsers().subscribe({
+      next: (res) => this.users.set(res.users),
+      error: () => {},
+    });
+  }
+
+  openPermissionsModal(share: NasShare): void {
+    this.permGuestOk = share.guestOk;
+    this.permReadOnly = share.readOnly;
+    const draft: Record<string, ShareUserPermission> = {};
+    for (const u of this.users()) {
+      const existing = share.userPermissions?.[u.username];
+      if (existing) {
+        draft[u.username] = existing;
+      } else if (share.validUsers?.length > 0) {
+        draft[u.username] = share.validUsers.includes(u.username)
+          ? share.readOnly
+            ? 'ro'
+            : 'rw'
+          : 'none';
+      } else {
+        draft[u.username] = share.readOnly ? 'ro' : 'rw';
+      }
+    }
+    this.permDraft = draft;
+    this.permModalShare.set(share);
+  }
+
+  savePermissions(): void {
+    const share = this.permModalShare();
+    if (!share) return;
+
+    this.savingPerms.set(true);
+    this.api
+      .updateSharePermissions(share.name, {
+        userPermissions: this.permDraft,
+        guestOk: this.permGuestOk,
+        readOnly: this.permReadOnly,
+      })
+      .subscribe({
+        next: (res) => {
+          this.savingPerms.set(false);
+          this.permModalShare.set(null);
+          this.feedbackOk.set(true);
+          this.feedback.set(
+            res.warnings?.length
+              ? `Permessi salvati (${res.warnings[0]})`
+              : `Permessi aggiornati per "${share.name}"`
+          );
+          this.load();
+        },
+        error: (err) => {
+          this.savingPerms.set(false);
+          this.feedbackOk.set(false);
+          this.feedback.set(err?.error?.error ?? 'Errore aggiornamento permessi');
+        },
+      });
   }
 
   createShare(): void {

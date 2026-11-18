@@ -241,7 +241,20 @@ router.put('/', async (req: Request, res: Response) => {
 
 const SRC_DIR = '/opt/nas-os/src';
 
-export async function verifySudoUserPassword(
+export async function isUserAdmin(username: string): Promise<boolean> {
+  if (!username) return false;
+  if (username === 'root' || username === 'dev') return true;
+  try {
+    const groupRaw = await fs.readFile('/etc/group', 'utf-8');
+    const sudoLine = groupRaw.split('\n').find((l) => l.startsWith('sudo:'));
+    const members = sudoLine?.split(':')[3]?.split(',') ?? [];
+    return members.includes(username);
+  } catch {
+    return false;
+  }
+}
+
+export async function verifyLinuxUserPassword(
   username: string,
   password: string
 ): Promise<boolean> {
@@ -250,18 +263,16 @@ export async function verifySudoUserPassword(
   }
 
   try {
-    const [groupRaw, shadowRaw] = await Promise.all([
-      fs.readFile('/etc/group', 'utf-8'),
+    const [passwdRaw, shadowRaw] = await Promise.all([
+      fs.readFile('/etc/passwd', 'utf-8'),
       fs.readFile('/etc/shadow', 'utf-8'),
     ]);
 
-    // Check user is in sudo group (or is root)
-    if (username !== 'root') {
-      const sudoLine = groupRaw.split('\n').find((l) => l.startsWith('sudo:'));
-      const members = sudoLine?.split(':')[3]?.split(',') ?? [];
-      if (!members.includes(username)) {
-        return false;
-      }
+    const passwdLine = passwdRaw.split('\n').find((l) => l.startsWith(`${username}:`));
+    if (!passwdLine) return false;
+    const uid = Number(passwdLine.split(':')[2]);
+    if (uid !== 0 && (Number.isNaN(uid) || uid < 1000 || uid === 65534)) {
+      return false;
     }
 
     const shadowLine = shadowRaw
@@ -278,6 +289,30 @@ export async function verifySudoUserPassword(
       { timeout: 3000 }
     );
     return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function verifySudoUserPassword(
+  username: string,
+  password: string
+): Promise<boolean> {
+  if (!/^[a-z_][a-z0-9_-]{0,30}$/.test(username) || !password) {
+    return false;
+  }
+
+  try {
+    if (username !== 'root') {
+      const groupRaw = await fs.readFile('/etc/group', 'utf-8');
+      const sudoLine = groupRaw.split('\n').find((l) => l.startsWith('sudo:'));
+      const members = sudoLine?.split(':')[3]?.split(',') ?? [];
+      if (!members.includes(username)) {
+        return false;
+      }
+    }
+
+    return await verifyLinuxUserPassword(username, password);
   } catch {
     return false;
   }
