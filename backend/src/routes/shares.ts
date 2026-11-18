@@ -4,6 +4,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { Router, Request, Response } from 'express';
 import { DATA_DIR } from '../services/docker.js';
+import { requireAdmin } from './auth.js';
 
 const execFileAsync = promisify(execFile);
 const router = Router();
@@ -224,7 +225,7 @@ router.get('/', async (_req: Request, res: Response) => {
   }
 });
 
-router.post('/', async (req: Request, res: Response) => {
+router.post('/', requireAdmin, async (req: Request, res: Response) => {
   const body = req.body as Partial<NasShare>;
   const name = String(body.name ?? '').trim();
   if (!SAFE_SHARE_NAME.test(name)) {
@@ -278,7 +279,7 @@ router.post('/', async (req: Request, res: Response) => {
   }
 });
 
-router.put('/:name/permissions', async (req: Request, res: Response) => {
+router.put('/:name/permissions', requireAdmin, async (req: Request, res: Response) => {
   const name = String(req.params.name ?? '').trim();
   const body = req.body as {
     userPermissions?: Record<string, ShareUserPermission>;
@@ -321,7 +322,7 @@ router.put('/:name/permissions', async (req: Request, res: Response) => {
   }
 });
 
-router.delete('/:name', async (req: Request, res: Response) => {
+router.delete('/:name', requireAdmin, async (req: Request, res: Response) => {
   const name = String(req.params.name ?? '').trim();
   try {
     const shares = await readShares();
@@ -335,7 +336,7 @@ router.delete('/:name', async (req: Request, res: Response) => {
   }
 });
 
-router.post('/services/:service/:action', async (req: Request, res: Response) => {
+router.post('/services/:service/:action', requireAdmin, async (req: Request, res: Response) => {
   const service = String(req.params.service ?? '');
   const action = String(req.params.action ?? '');
 

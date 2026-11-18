@@ -1000,20 +1000,35 @@ export class ApiService {
     return this.http.get<{ status: string }>('/api/health');
   }
 
-  getAuthStatus(): Observable<{ authenticated: boolean; username: string | null }> {
-    return this.http.get<{ authenticated: boolean; username: string | null }>(
-      '/api/auth/status'
-    );
+  getAuthStatus(): Observable<{
+    authenticated: boolean;
+    username: string | null;
+    isAdmin?: boolean;
+    homePath?: string | null;
+  }> {
+    return this.http.get<{
+      authenticated: boolean;
+      username: string | null;
+      isAdmin?: boolean;
+      homePath?: string | null;
+    }>('/api/auth/status');
   }
 
   login(
     username: string,
     password: string
-  ): Observable<{ authenticated: boolean; username: string }> {
-    return this.http.post<{ authenticated: boolean; username: string }>(
-      '/api/auth/login',
-      { username, password }
-    );
+  ): Observable<{
+    authenticated: boolean;
+    username: string;
+    isAdmin?: boolean;
+    homePath?: string;
+  }> {
+    return this.http.post<{
+      authenticated: boolean;
+      username: string;
+      isAdmin?: boolean;
+      homePath?: string;
+    }>('/api/auth/login', { username, password });
   }
 
   logout(): Observable<{ success: boolean }> {

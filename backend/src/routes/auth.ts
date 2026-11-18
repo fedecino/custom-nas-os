@@ -115,6 +115,23 @@ export async function requireAuth(
   next();
 }
 
+export async function requireAdmin(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  if (process.env.SILO_DEV_NO_AUTH === '1') {
+    next();
+    return;
+  }
+  const username = (req as Request & { user?: string }).user;
+  if (!username || !(await isUserAdmin(username))) {
+    res.status(403).json({ error: 'Privilegi amministratore richiesti' });
+    return;
+  }
+  next();
+}
+
 router.get('/status', async (req: Request, res: Response) => {
   if (process.env.SILO_DEV_NO_AUTH === '1') {
     const homePath = path.join(DATA_DIR, 'Homes', 'dev');

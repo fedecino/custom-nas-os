@@ -123,7 +123,7 @@ type ActiveWindow =
               (click)="$event.stopPropagation()"
               class="absolute left-0 top-11 z-50 w-60 rounded-2xl border border-[#1e293b] bg-[#0f172a]/95 p-2 shadow-2xl backdrop-blur-xl"
             >
-              @for (item of menuItems; track item.id) {
+              @for (item of visibleMenuItems(); track item.label) {
                 <button
                   type="button"
                   (click)="openMenuItem(item)"
@@ -522,13 +522,15 @@ type ActiveWindow =
                   >
                     Apri AI Agent
                   </button>
-                  <button
-                    type="button"
-                    (click)="openSettings('ai')"
-                    class="rounded-full bg-white/15 px-3.5 py-1 text-[11px] font-medium text-white hover:bg-white/25"
-                  >
-                    API Key
-                  </button>
+                  @if (isAdmin()) {
+                    <button
+                      type="button"
+                      (click)="openSettings('ai')"
+                      class="rounded-full bg-white/15 px-3.5 py-1 text-[11px] font-medium text-white hover:bg-white/25"
+                    >
+                      API Key
+                    </button>
+                  }
                 </div>
               </div>
               <div class="text-4xl">🤖</div>
@@ -545,18 +547,20 @@ type ActiveWindow =
 
             <div class="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5">
               <!-- Core App Store Tile -->
-              <button
-                type="button"
-                (click)="activeWindow.set('store')"
-                class="group flex flex-col items-center justify-center rounded-2xl border border-white/15 bg-white/[0.08] p-5 text-center shadow-lg backdrop-blur-xl transition hover:-translate-y-0.5 hover:border-sky-400/50 hover:bg-white/[0.14]"
-              >
-                <div
-                  class="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-sky-400 to-blue-600 text-2xl shadow-lg transition group-hover:scale-105"
+              @if (isAdmin()) {
+                <button
+                  type="button"
+                  (click)="activeWindow.set('store')"
+                  class="group flex flex-col items-center justify-center rounded-2xl border border-white/15 bg-white/[0.08] p-5 text-center shadow-lg backdrop-blur-xl transition hover:-translate-y-0.5 hover:border-sky-400/50 hover:bg-white/[0.14]"
                 >
-                  🛍️
-                </div>
-                <span class="mt-3 text-xs font-medium text-white">App Store</span>
-              </button>
+                  <div
+                    class="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-sky-400 to-blue-600 text-2xl shadow-lg transition group-hover:scale-105"
+                  >
+                    🛍️
+                  </div>
+                  <span class="mt-3 text-xs font-medium text-white">App Store</span>
+                </button>
+              }
 
               <!-- Core Files (File Manager) Tile -->
               <button
@@ -573,18 +577,20 @@ type ActiveWindow =
               </button>
 
               <!-- Core Services & Ports Tile -->
-              <button
-                type="button"
-                (click)="activeWindow.set('services')"
-                class="group flex flex-col items-center justify-center rounded-2xl border border-white/15 bg-white/[0.08] p-5 text-center shadow-lg backdrop-blur-xl transition hover:-translate-y-0.5 hover:border-sky-400/50 hover:bg-white/[0.14]"
-              >
-                <div
-                  class="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-400 to-teal-600 text-2xl shadow-lg transition group-hover:scale-105"
+              @if (isAdmin()) {
+                <button
+                  type="button"
+                  (click)="activeWindow.set('services')"
+                  class="group flex flex-col items-center justify-center rounded-2xl border border-white/15 bg-white/[0.08] p-5 text-center shadow-lg backdrop-blur-xl transition hover:-translate-y-0.5 hover:border-sky-400/50 hover:bg-white/[0.14]"
                 >
-                  🔌
-                </div>
-                <span class="mt-3 text-xs font-medium text-white">Servizi & Porte</span>
-              </button>
+                  <div
+                    class="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-400 to-teal-600 text-2xl shadow-lg transition group-hover:scale-105"
+                  >
+                    🔌
+                  </div>
+                  <span class="mt-3 text-xs font-medium text-white">Servizi & Porte</span>
+                </button>
+              }
 
               <!-- Core Logs Tile -->
               <button
@@ -796,6 +802,7 @@ type ActiveWindow =
                 }
                 @case ('settings') {
                   <app-settings-app
+                    [isAdmin]="isAdmin()"
                     [initialCategory]="settingsCategory()"
                     (updated)="onSettingsUpdated($event)"
                   />
@@ -980,6 +987,7 @@ export class AppComponent implements OnInit, OnDestroy {
   authChecked = signal(false);
   authenticated = signal(false);
   currentUser = signal<string | null>(null);
+  isAdmin = signal(true);
   wallpaperVersion = signal(Date.now());
 
   activeWindow = signal<ActiveWindow>(null);
@@ -1001,18 +1009,23 @@ export class AppComponent implements OnInit, OnDestroy {
       settingsCat?: SettingsCategory;
       label: string;
       icon: string;
+      adminOnly?: boolean;
     }> = [
-      { id: 'store', label: 'App Store', icon: '🛍️' },
+      { id: 'store', label: 'App Store', icon: '🛍️', adminOnly: true },
       { id: 'files', label: 'Files (File Manager)', icon: '📁' },
-      { id: 'settings', settingsCat: 'storage', label: 'Dischi & Storage', icon: '🖴' },
-      { id: 'settings', settingsCat: 'shares', label: 'Condivisioni (SMB/NFS/FTP)', icon: '🔗' },
-      { id: 'settings', settingsCat: 'services', label: 'Servizi, Porte & Firewall', icon: '🔌' },
-      { id: 'settings', settingsCat: 'users', label: 'Utenti & Permessi', icon: '👤' },
+      { id: 'settings', settingsCat: 'storage', label: 'Dischi & Storage', icon: '🖴', adminOnly: true },
+      { id: 'settings', settingsCat: 'shares', label: 'Condivisioni (SMB/NFS/FTP)', icon: '🔗', adminOnly: true },
+      { id: 'settings', settingsCat: 'services', label: 'Servizi, Porte & Firewall', icon: '🔌', adminOnly: true },
+      { id: 'settings', settingsCat: 'users', label: 'Utenti & Permessi', icon: '👤', adminOnly: true },
       { id: 'logs', label: 'Log di Sistema', icon: '📜' },
       { id: 'terminal', label: 'Terminale Web', icon: '💻' },
       { id: 'ai', label: 'AI Agent', icon: '🤖' },
-      { id: 'settings', settingsCat: 'desktop', label: 'Impostazioni', icon: '⚙️' },
+      { id: 'settings', settingsCat: 'desktop', label: 'Impostazioni', icon: '⚙️', adminOnly: true },
     ];
+
+    visibleMenuItems() {
+      return this.isAdmin() ? this.menuItems : this.menuItems.filter((m) => !m.adminOnly);
+    }
     ramProcesses = signal<ProcessMemoryInfo[]>([]);
     appVersion = signal('1.0.0');
     desktopSearch = '';
@@ -1055,6 +1068,7 @@ export class AppComponent implements OnInit, OnDestroy {
           if (res.authenticated) {
             this.authenticated.set(true);
             this.currentUser.set(res.username);
+            this.isAdmin.set(res.isAdmin !== false);
             this.startAuthenticatedSession();
           }
         },
@@ -1067,6 +1081,10 @@ export class AppComponent implements OnInit, OnDestroy {
   onLoggedIn(username: string): void {
       this.authenticated.set(true);
       this.currentUser.set(username);
+      this.api.getAuthStatus().subscribe({
+        next: (res) => this.isAdmin.set(res.isAdmin !== false),
+        error: () => {},
+      });
       this.startAuthenticatedSession();
     }
 

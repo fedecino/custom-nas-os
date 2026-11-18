@@ -307,6 +307,26 @@ router.get('/download', async (req: Request, res: Response) => {
   });
 });
 
+router.get('/view', async (req: Request, res: Response) => {
+  const ctx = await getUserFileContext(req);
+  const target = String(req.query.path ?? '').trim();
+  if (!target) {
+    res.status(400).json({ error: 'Percorso mancante' });
+    return;
+  }
+  const resolved = path.resolve(target);
+  if (!checkUserAccess(ctx, resolved, 'ro').allowed) {
+    res.status(403).json({ error: 'Accesso negato' });
+    return;
+  }
+  res.setHeader('Content-Disposition', 'inline');
+  res.sendFile(resolved, (err) => {
+    if (err && !res.headersSent) {
+      res.status(404).json({ error: 'File non trovato o non leggibile' });
+    }
+  });
+});
+
 router.post('/upload', async (req: Request, res: Response) => {
   const ctx = await getUserFileContext(req);
   const rawDir = String(req.query.dir ?? '').trim();

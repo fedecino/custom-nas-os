@@ -4,6 +4,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { Router, Request, Response } from 'express';
 import { DATA_DIR } from '../services/docker.js';
+import { requireAdmin } from './auth.js';
 
 const execFileAsync = promisify(execFile);
 const router = Router();
@@ -112,7 +113,7 @@ router.get('/', async (_req: Request, res: Response) => {
   }
 });
 
-router.post('/', async (req: Request, res: Response) => {
+router.post('/', requireAdmin, async (req: Request, res: Response) => {
   const { username, password, sshAccess, sudoAccess, sambaAccess } = req.body as {
     username?: string;
     password?: string;
@@ -168,7 +169,7 @@ router.post('/', async (req: Request, res: Response) => {
   }
 });
 
-router.put('/:username/password', async (req: Request, res: Response) => {
+router.put('/:username/password', requireAdmin, async (req: Request, res: Response) => {
   const username = String(req.params.username ?? '').trim();
   const { password, updateSamba } = req.body as {
     password?: string;
@@ -196,7 +197,7 @@ router.put('/:username/password', async (req: Request, res: Response) => {
   }
 });
 
-router.delete('/:username', async (req: Request, res: Response) => {
+router.delete('/:username', requireAdmin, async (req: Request, res: Response) => {
   const username = String(req.params.username ?? '').trim();
   if (!SAFE_USERNAME.test(username)) {
     res.status(400).json({ error: 'Invalid username' });

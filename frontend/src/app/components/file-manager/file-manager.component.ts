@@ -57,6 +57,23 @@ interface ContextMenuState {
         </div>
 
         <div class="flex flex-wrap items-center gap-2">
+          @if (selectedPaths().size > 1) {
+            <button
+              type="button"
+              (click)="deleteSelected()"
+              class="rounded-xl bg-rose-500/20 px-3 py-1.5 text-xs font-medium text-rose-200 hover:bg-rose-500/35"
+            >
+              🗑️ Elimina ({{ selectedPaths().size }})
+            </button>
+            <button
+              type="button"
+              (click)="clearSelection()"
+              class="rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-300 hover:bg-white/10"
+            >
+              Deseleziona
+            </button>
+          }
+
           @if (parentPath(); as parent) {
             <button
               type="button"
@@ -157,33 +174,6 @@ interface ContextMenuState {
           (contextmenu)="onEmptyContextMenu($event)"
           class="relative min-h-0 select-none overflow-y-auto rounded-2xl border border-white/10 bg-slate-900/60 focus:border-[#38bdf8]/40 focus:outline-none md:col-span-9"
         >
-          @if (selectedPaths().size > 0) {
-            <div
-              (mousedown)="$event.stopPropagation()"
-              class="sticky top-0 z-20 flex flex-wrap items-center justify-between gap-2 border-b border-[#38bdf8]/30 bg-slate-950/95 px-4 py-2 text-xs backdrop-blur-md"
-            >
-              <span class="font-medium text-[#38bdf8]">
-                {{ selectedPaths().size }} {{ selectedPaths().size === 1 ? 'elemento selezionato' : 'elementi selezionati' }}
-              </span>
-              <div class="flex items-center gap-2">
-                <button
-                  type="button"
-                  (click)="deleteSelected()"
-                  class="rounded-lg bg-rose-500/20 px-3 py-1 font-medium text-rose-200 hover:bg-rose-500/35"
-                >
-                  🗑️ Elimina selezionati
-                </button>
-                <button
-                  type="button"
-                  (click)="clearSelection()"
-                  class="rounded-lg border border-white/10 bg-white/5 px-3 py-1 text-slate-300 hover:bg-white/10"
-                >
-                  Deseleziona
-                </button>
-              </div>
-            </div>
-          }
-
           @if (items().length === 0) {
             <div class="flex h-full flex-col items-center justify-center py-16 text-center text-xs text-slate-400">
               <div class="text-3xl">📂</div>

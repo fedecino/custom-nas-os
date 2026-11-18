@@ -6,6 +6,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { Router, Request, Response } from 'express';
 import { DATA_DIR } from '../services/docker.js';
+import { requireAdmin } from './auth.js';
 
 const execFileAsync = promisify(execFile);
 const router = Router();
@@ -173,7 +174,7 @@ router.get('/', async (_req: Request, res: Response) => {
   }
 });
 
-router.put('/', async (req: Request, res: Response) => {
+router.put('/', requireAdmin, async (req: Request, res: Response) => {
   const { hostname, nasName, wallpaper, repoUrl, ai, loginScreen } = req.body as {
     hostname?: string;
     nasName?: string;
@@ -429,7 +430,7 @@ router.get('/updates/progress', async (_req: Request, res: Response) => {
   }
 });
 
-router.post('/updates/apply', async (req: Request, res: Response) => {
+router.post('/updates/apply', requireAdmin, async (req: Request, res: Response) => {
   const { username, password, repoUrl } = req.body as {
     username?: string;
     password?: string;
@@ -481,7 +482,7 @@ router.post('/updates/apply', async (req: Request, res: Response) => {
 
 const WALLPAPER_PATH = path.join(DATA_DIR, '.nas-os', 'custom-wallpaper');
 
-router.post('/wallpaper', async (req: Request, res: Response) => {
+router.post('/wallpaper', requireAdmin, async (req: Request, res: Response) => {
   try {
     await fs.mkdir(path.dirname(WALLPAPER_PATH), { recursive: true });
     const writeStream = createWriteStream(WALLPAPER_PATH);
@@ -533,7 +534,7 @@ router.get('/login-config', async (_req: Request, res: Response) => {
   }
 });
 
-router.post('/login-wallpaper', async (req: Request, res: Response) => {
+router.post('/login-wallpaper', requireAdmin, async (req: Request, res: Response) => {
   try {
     await fs.mkdir(path.dirname(LOGIN_WALLPAPER_PATH), { recursive: true });
     const writeStream = createWriteStream(LOGIN_WALLPAPER_PATH);
@@ -644,7 +645,7 @@ router.get('/proxy-routes', async (_req: Request, res: Response) => {
   res.json({ routes });
 });
 
-router.post('/proxy-routes', async (req: Request, res: Response) => {
+router.post('/proxy-routes', requireAdmin, async (req: Request, res: Response) => {
   const { path: rawPath, target, stripPrefix } = req.body as {
     path?: string;
     target?: string;
@@ -688,7 +689,7 @@ router.post('/proxy-routes', async (req: Request, res: Response) => {
   res.json({ success: true, routes, warnings });
 });
 
-router.delete('/proxy-routes/:slug', async (req: Request, res: Response) => {
+router.delete('/proxy-routes/:slug', requireAdmin, async (req: Request, res: Response) => {
   const slug = String(req.params.slug ?? '').trim();
   const routes = (await readProxyRoutes()).filter((r) => r.slug !== slug);
   await fs.mkdir(path.dirname(PROXY_ROUTES_FILE), { recursive: true });
@@ -983,7 +984,7 @@ router.get('/network', async (_req: Request, res: Response) => {
   }
 });
 
-router.put('/network/:iface', async (req: Request, res: Response) => {
+router.put('/network/:iface', requireAdmin, async (req: Request, res: Response) => {
   const iface = String(req.params.iface ?? '').trim();
   if (!/^[a-zA-Z0-9._-]{1,32}$/.test(iface) || VIRTUAL_IFACE_RE.test(iface)) {
     res.status(400).json({ error: 'Nome interfaccia di rete non valido' });

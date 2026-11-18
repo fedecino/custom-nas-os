@@ -46,6 +46,17 @@ export type SettingsCategory =
     ServicesManagerComponent,
   ],
   template: `
+    @if (!isAdmin) {
+      <div class="flex h-full items-center justify-center p-6">
+        <div class="max-w-md rounded-2xl border border-rose-500/30 bg-rose-500/10 p-6 text-center">
+          <div class="text-3xl">🔒</div>
+          <h3 class="mt-2 text-sm font-semibold text-white">Accesso Riservato agli Amministratori</h3>
+          <p class="mt-1.5 text-xs leading-relaxed text-slate-300">
+            Solo gli utenti con privilegi di amministratore (<span class="font-mono text-sky-300">sudo</span>) possono visualizzare o modificare le impostazioni di sistema, rete, dischi, utenti e aggiornamenti.
+          </p>
+        </div>
+      </div>
+    } @else {
     <div class="flex h-full flex-col gap-5 md:flex-row">
       <!-- Left Categories Sidebar -->
       <aside
@@ -773,11 +784,13 @@ export type SettingsCategory =
         </div>
       }
     </div>
+    }
   `,
 })
 export class SettingsAppComponent implements OnInit {
   private readonly api = inject(ApiService);
 
+  @Input() isAdmin = true;
   @Input() set initialCategory(cat: SettingsCategory | null) {
     if (cat) this.activeCategory.set(cat);
   }
