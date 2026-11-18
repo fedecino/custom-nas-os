@@ -1,5 +1,11 @@
 import { Router, Request, Response } from 'express';
 import { getTags, inspectImage, searchRepositories } from '../services/registry.js';
+import {
+  fetchComposeFromUrl,
+  getAppStoreCatalog,
+  renderStoreAppCompose,
+  syncAppStoreFromRepo,
+} from '../services/appstore.js';
 
 const router = Router();
 
@@ -48,6 +54,51 @@ router.get('/inspect', async (req: Request, res: Response) => {
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Image inspection failed';
     res.status(502).json({ error: message });
+  }
+});
+
+// Curated App Store endpoints
+router.get('/store', async (_req: Request, res: Response) => {
+  try {
+    const catalog = await getAppStoreCatalog();
+    res.json(catalog);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'App Store load failed';
+    res.status(500).json({ error: message });
+  }
+});
+
+router.post('/store/sync', async (req: Request, res: Response) => {
+  const { repoUrl } = req.body as { repoUrl?: string };
+  try {
+    const syncInfo = await syncAppStoreFromRepo(repoUrl);
+    const catalog = await getAppStoreCatalog();
+    res.json({ success: true, ...syncInfo, ...catalog });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Catalog sync failed';
+    res.status(502).json({ error: message });
+  }
+});
+
+router.post('/store/:id/render', async (req: Request, res: Response) => {
+  const appId = String(req.params.id ?? '').trim();
+  try {
+    const rendered = await renderStoreAppCompose(appId);
+    res.json(rendered);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Template render failed';
+    res.status(404).json({ error: message });
+  }
+});
+
+router.post('/import-url', async (req: Request, res: Response) => {
+  const { url } = req.body as { url?: string };
+  try {
+    const composeYaml = await fetchComposeFromUrl(String(url ?? ''));
+    res.json({ composeYaml });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Import URL failed';
+    res.status(400).json({ error: message });
   }
 });
 

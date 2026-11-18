@@ -778,6 +778,8 @@ type ActiveWindow =
                     [installedStacks]="stacks()"
                     (inspected)="openInspectedEditor($event)"
                     (openExisting)="openExistingStackEditor($event)"
+                    (openCustomCompose)="openCustomComposeEditor($event)"
+                    (deployed)="refreshAll()"
                   />
                 }
                 @case ('files') {
@@ -1375,6 +1377,19 @@ openInspectedEditor(inspected: InspectedImage): void {
     stackName: inspected.appName,
     initialYaml: inspected.composeYaml,
     lockStackName: false,
+  });
+}
+
+openCustomComposeEditor(event: {
+  stackName: string;
+  yamlContent: string;
+  lockStackName?: boolean;
+}): void {
+  this.editorState.set({
+    inspected: null,
+    stackName: event.stackName,
+    initialYaml: event.yamlContent,
+    lockStackName: Boolean(event.lockStackName),
   });
 }
 

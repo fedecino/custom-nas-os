@@ -75,6 +75,16 @@ export interface InspectedImage {
   os: string;
 }
 
+export interface StoreAppTemplate {
+  id: string;
+  name: string;
+  category: string;
+  description: string;
+  image: string;
+  multiService?: boolean;
+  defaultPort?: number;
+}
+
 export interface ContainerInfo {
   id: string;
   name: string;
@@ -350,6 +360,48 @@ export class ApiService {
     return this.http.get<InspectedImage>('/api/hub/inspect', {
       params: { image, tag },
     });
+  }
+
+  getAppStore(): Observable<{
+    apps: StoreAppTemplate[];
+    categories: string[];
+    lastSynced: string | null;
+  }> {
+    return this.http.get<{
+      apps: StoreAppTemplate[];
+      categories: string[];
+      lastSynced: string | null;
+    }>('/api/hub/store');
+  }
+
+  syncAppStore(repoUrl?: string): Observable<{
+    success: boolean;
+    apps: StoreAppTemplate[];
+    categories: string[];
+    lastSynced: string | null;
+  }> {
+    return this.http.post<{
+      success: boolean;
+      apps: StoreAppTemplate[];
+      categories: string[];
+      lastSynced: string | null;
+    }>('/api/hub/store/sync', { repoUrl });
+  }
+
+  renderStoreApp(appId: string): Observable<{
+    app: StoreAppTemplate;
+    composeYaml: string;
+    resolvedPort: number | null;
+  }> {
+    return this.http.post<{
+      app: StoreAppTemplate;
+      composeYaml: string;
+      resolvedPort: number | null;
+    }>(`/api/hub/store/${encodeURIComponent(appId)}/render`, {});
+  }
+
+  importComposeUrl(url: string): Observable<{ composeYaml: string }> {
+    return this.http.post<{ composeYaml: string }>('/api/hub/import-url', { url });
   }
 
   getStacks(): Observable<StacksResponse> {
