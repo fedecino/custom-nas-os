@@ -1,0 +1,10 @@
+#!/bin/bash
+# NetworkManager dispatcher: refresh NAS-OS console banner when network changes
+IFACE="${1:-}"
+ACTION="${2:-}"
+
+case "$ACTION" in
+  up|down|dhcp4-change|dhcp6-change)
+    /usr/local/bin/nas-os-banner.sh || true
+    ;;
+esac

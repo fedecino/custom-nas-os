@@ -1,0 +1,61 @@
+# Core System & Networking
+systemd-sysv
+network-manager
+wpasupplicant
+iw
+rfkill
+openssh-server
+sudo
+avahi-daemon
+ca-certificates
+curl
+gnupg
+jq
+rsync
+grub-efi-amd64
+grub-pc-bin
+efibootmgr
+
+# Wi-Fi & Network Firmware Drivers
+firmware-linux-nonfree
+firmware-iwlwifi
+firmware-realtek
+firmware-atheros
+firmware-brcm80211
+firmware-mediatek
+
+# Storage & Filesystems
+linux-headers-amd64
+dkms
+zfs-dkms
+zfsutils-linux
+parted
+gdisk
+smartmontools
+nvme-cli
+hdparm
+mdadm
+lvm2
+btrfs-progs
+xfsprogs
+e2fsprogs
+dosfstools
+ntfs-3g
+exfatprogs
+
+# NAS File Sharing Protocols (SMB, NFS, FTP)
+samba
+nfs-kernel-server
+vsftpd
+
+# Web Server & Runtime
+nginx
+nodejs
+npm
+
+# Docker Engine & Compose v2 (from download.docker.com/linux/debian)
+docker-ce
+docker-ce-cli
+containerd.io
+docker-buildx-plugin
+docker-compose-plugin

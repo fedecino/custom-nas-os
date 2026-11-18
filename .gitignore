@@ -1,0 +1,17 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+out-tsc/
+.angular/
+
+# Generated ISO images and live-build work directory
+*.iso
+iso-builder/work/
+
+# Environment & local data
+.env
+.env.local
+*.log
+npm-debug.log*

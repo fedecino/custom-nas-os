@@ -1,0 +1,2 @@
+ACTION=="add", SUBSYSTEM=="block", ENV{ID_BUS}=="usb", ENV{ID_FS_USAGE}=="filesystem", RUN+="/usr/local/sbin/nas-os-usb-mount add %k"
+ACTION=="remove", SUBSYSTEM=="block", ENV{ID_BUS}=="usb", RUN+="/usr/local/sbin/nas-os-usb-mount remove %k"

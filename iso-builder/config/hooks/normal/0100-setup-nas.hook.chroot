@@ -1,0 +1,54 @@
+#!/bin/bash
+set -euo pipefail
+
+echo "[NAS-OS Hook] Creating /DATA directory structure..."
+mkdir -p /DATA/AppData /DATA/Stacks /DATA/Media /DATA/Shares /DATA/Disks /DATA/.nas-os
+chmod 755 /DATA /DATA/AppData /DATA/Stacks /DATA/Media /DATA/Shares /DATA/Disks
+
+echo "[NAS-OS Hook] Configuring Samba & NFS directories..."
+mkdir -p /etc/samba/smb.d /etc/exports.d
+touch /etc/samba/smb.d/nas-os.conf
+if [ -f /etc/samba/smb.conf ] && ! grep -q "nas-os.conf" /etc/samba/smb.conf; then
+  echo -e "\ninclude = /etc/samba/smb.d/nas-os.conf" >> /etc/samba/smb.conf
+fi
+
+echo "[NAS-OS Hook] Installing backend production dependencies..."
+if [ -d /opt/nas-os/backend ]; then
+  cd /opt/nas-os/backend
+  npm ci --omit=dev
+fi
+
+echo "[NAS-OS Hook] Configuring Nginx reverse proxy..."
+rm -f /etc/nginx/sites-enabled/default
+if [ -f /etc/nginx/sites-available/nas-os.conf ]; then
+  ln -sf /etc/nginx/sites-available/nas-os.conf /etc/nginx/sites-enabled/nas-os.conf
+fi
+
+echo "[NAS-OS Hook] Configuring console welcome & Wi-Fi banner..."
+chmod +x /usr/local/bin/nas-os-banner.sh || true
+chmod +x /usr/local/sbin/nas-os-install || true
+chmod +x /usr/local/sbin/nas-os-usb-mount || true
+chmod +x /etc/NetworkManager/dispatcher.d/99-nas-os-banner || true
+
+echo "[NAS-OS Hook] Enabling systemd services..."
+systemctl enable NetworkManager.service || true
+systemctl enable ssh.service || true
+systemctl enable smbd.service || true
+systemctl enable nfs-kernel-server.service || true
+systemctl enable docker.service || true
+systemctl enable nginx.service || true
+systemctl enable nas-os.service || true
+systemctl enable nas-os-banner.service || true
+
+echo "[NAS-OS Hook] Building ZFS DKMS kernel module if needed..."
+for kdir in /lib/modules/*; do
+  if [ -d "$kdir" ]; then
+    kver="$(basename "$kdir")"
+    dkms autoinstall -k "$kver" || true
+    depmod -a "$kver" || true
+  fi
+done
+
+echo "[NAS-OS Hook] Cleaning up apt cache..."
+apt-get clean
+rm -rf /var/lib/apt/lists/*

@@ -1,0 +1,22 @@
+[Unit]
+Description=NAS-OS Backend API Server
+After=network.target
+Wants=docker.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/nas-os/backend
+Environment=NODE_ENV=production
+Environment=PORT=3000
+Environment=NAS_DATA_DIR=/DATA
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=/usr/bin/node /opt/nas-os/backend/dist/index.js
+Restart=always
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
