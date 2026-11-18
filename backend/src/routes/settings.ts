@@ -252,6 +252,24 @@ async function verifySudoUserPassword(
   }
 }
 
+function cleanReleaseNotes(raw: string): string {
+  return raw
+    .split('\n')
+    .filter((line) => !/^##\s+\[?\d+\.\d+\.\d+/.test(line.trim()))
+    .map((line) =>
+      line
+        .replace(/\(\[?[a-f0-9]{7,40}\]?\(https?:\/\/[^)]+\)\)/gi, '')
+        .replace(/\[([^\]]+)\]\(https?:\/\/[^)]+\)/gi, '$1')
+        .replace(/https?:\/\/\S+/gi, '')
+        .replace(/^###\s+/, '')
+        .replace(/^\*\s+/, '• ')
+        .trimEnd()
+    )
+    .filter((line, idx, arr) => !(line === '' && (idx === 0 || arr[idx - 1] === '')))
+    .join('\n')
+    .trim();
+}
+
 router.get('/updates', async (_req: Request, res: Response) => {
   const [settings, installedVersion] = await Promise.all([
     readFullSettings(),
@@ -281,7 +299,8 @@ router.get('/updates', async (_req: Request, res: Response) => {
         };
         latestReleaseVersion = (gh.tag_name ?? gh.name ?? '').replace(/^v/, '') || null;
         latestReleaseDate = gh.published_at ?? null;
-        latestReleaseNotes = gh.body?.trim() || gh.name || null;
+        const rawNotes = gh.body?.trim() || gh.name || '';
+        latestReleaseNotes = rawNotes ? cleanReleaseNotes(rawNotes) : null;
       }
     }
   } catch {
