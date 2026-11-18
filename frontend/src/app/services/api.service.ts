@@ -170,13 +170,31 @@ export interface AiSettingsView {
   apiKeyPreview?: string;
 }
 
+export type WallpaperType =
+  | 'silo-landscape'
+  | 'aurora'
+  | 'midnight'
+  | 'ocean'
+  | 'carbon'
+  | 'custom';
+
+export interface LoginScreenSettings {
+  title: string;
+  subtitle: string;
+  showClock: boolean;
+  showLogo: boolean;
+  blurBackground: boolean;
+  useCustomWallpaper: boolean;
+}
+
 export interface NasSettingsResponse {
   hostname: string;
   version?: string;
   settings: {
     nasName: string;
-    wallpaper: 'aurora' | 'midnight' | 'ocean' | 'carbon';
+    wallpaper: WallpaperType;
     repoUrl?: string;
+    loginScreen?: LoginScreenSettings;
     ai: AiSettingsView;
   };
   network: Array<{
@@ -520,8 +538,9 @@ export class ApiService {
   saveSettings(payload: {
     hostname?: string;
     nasName?: string;
-    wallpaper?: 'aurora' | 'midnight' | 'ocean' | 'carbon';
+    wallpaper?: WallpaperType;
     repoUrl?: string;
+    loginScreen?: Partial<LoginScreenSettings>;
     ai?: {
       enabled?: boolean;
       providerType?: 'ollama' | 'lmstudio' | 'openai' | 'gemini' | 'custom';
@@ -820,5 +839,65 @@ export class ApiService {
         }
       }
     }
+  }
+
+  getAuthStatus(): Observable<{ authenticated: boolean; username: string | null }> {
+    return this.http.get<{ authenticated: boolean; username: string | null }>(
+      '/api/auth/status'
+    );
+  }
+
+  login(
+    username: string,
+    password: string
+  ): Observable<{ authenticated: boolean; username: string }> {
+    return this.http.post<{ authenticated: boolean; username: string }>(
+      '/api/auth/login',
+      { username, password }
+    );
+  }
+
+  logout(): Observable<{ success: boolean }> {
+    return this.http.post<{ success: boolean }>('/api/auth/logout', {});
+  }
+
+  async uploadWallpaper(
+    file: File
+  ): Promise<{ success: boolean; settings: NasSettingsResponse['settings'] }> {
+    const res = await fetch('/api/settings/wallpaper', {
+      method: 'POST',
+      headers: { 'Content-Type': file.type || 'application/octet-stream' },
+      body: file,
+    });
+    if (!res.ok) {
+      throw new Error(`Upload sfondo fallito (HTTP ${res.status})`);
+    }
+    return res.json();
+  }
+
+  getLoginConfig(): Observable<{
+    nasName: string;
+    wallpaper: WallpaperType;
+    loginScreen: LoginScreenSettings;
+  }> {
+    return this.http.get<{
+      nasName: string;
+      wallpaper: WallpaperType;
+      loginScreen: LoginScreenSettings;
+    }>('/api/settings/login-config');
+  }
+
+  async uploadLoginWallpaper(
+    file: File
+  ): Promise<{ success: boolean; settings: NasSettingsResponse['settings'] }> {
+    const res = await fetch('/api/settings/login-wallpaper', {
+      method: 'POST',
+      headers: { 'Content-Type': file.type || 'application/octet-stream' },
+      body: file,
+    });
+    if (!res.ok) {
+      throw new Error(`Upload sfondo login fallito (HTTP ${res.status})`);
+    }
+    return res.json();
   }
 }

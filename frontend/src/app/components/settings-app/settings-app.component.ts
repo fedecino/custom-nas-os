@@ -11,8 +11,10 @@ import { FormsModule } from '@angular/forms';
 import {
   AiSettingsView,
   ApiService,
+  LoginScreenSettings,
   NasSettingsResponse,
   SystemUpdateStatus,
+  WallpaperType,
 } from '../../services/api.service';
 
 @Component({
@@ -72,10 +74,23 @@ import {
         </div>
 
         <div>
-          <label class="block text-xs font-medium text-slate-300">
-            Sfondo Desktop (Wallpaper)
-          </label>
-          <div class="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <label class="block text-xs font-medium text-slate-300">
+              Sfondo Desktop (Wallpaper)
+            </label>
+            <label
+              class="cursor-pointer rounded-xl border border-sky-400/40 bg-sky-500/15 px-3 py-1 text-[11px] font-medium text-sky-300 hover:bg-sky-500/25"
+            >
+              Carica Immagine Personalizzata...
+              <input
+                type="file"
+                accept="image/*"
+                class="hidden"
+                (change)="onWallpaperUpload($event)"
+              />
+            </label>
+          </div>
+          <div class="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-5">
             @for (wp of wallpapers; track wp.id) {
               <button
                 type="button"
@@ -92,6 +107,73 @@ import {
               </button>
             }
           </div>
+        </div>
+      </div>
+
+      <!-- Login Screen Customization -->
+      <div class="rounded-2xl border border-white/10 bg-slate-900/60 p-5 space-y-4">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-300">
+              Schermata di Login
+            </h3>
+            <p class="mt-0.5 text-[11px] text-slate-400">
+              Personalizza titolo, messaggio di benvenuto, elementi visibili e sfondo del login
+            </p>
+          </div>
+          <label
+            class="cursor-pointer rounded-xl border border-sky-400/40 bg-sky-500/15 px-3 py-1.5 text-[11px] font-medium text-sky-300 hover:bg-sky-500/25"
+          >
+            Carica Sfondo Login...
+            <input
+              type="file"
+              accept="image/*"
+              class="hidden"
+              (change)="onLoginWallpaperUpload($event)"
+            />
+          </label>
+        </div>
+
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div>
+            <label class="block text-xs font-medium text-slate-300">
+              Titolo Schermata Login
+            </label>
+            <input
+              type="text"
+              [(ngModel)]="loginScreen.title"
+              class="mt-1.5 w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-xs text-white focus:border-sky-400 focus:outline-none"
+            />
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-slate-300">
+              Sottotitolo / Messaggio
+            </label>
+            <input
+              type="text"
+              [(ngModel)]="loginScreen.subtitle"
+              class="mt-1.5 w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-xs text-white focus:border-sky-400 focus:outline-none"
+            />
+          </div>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-5 text-xs text-slate-300">
+          <label class="flex cursor-pointer items-center gap-2">
+            <input type="checkbox" [(ngModel)]="loginScreen.showLogo" class="accent-sky-400" />
+            <span>Mostra Logo SiloOS</span>
+          </label>
+          <label class="flex cursor-pointer items-center gap-2">
+            <input type="checkbox" [(ngModel)]="loginScreen.showClock" class="accent-sky-400" />
+            <span>Mostra Orologio & Data</span>
+          </label>
+          <label class="flex cursor-pointer items-center gap-2">
+            <input type="checkbox" [(ngModel)]="loginScreen.blurBackground" class="accent-sky-400" />
+            <span>Sfocatura Sfondo (Blur)</span>
+          </label>
+          <label class="flex cursor-pointer items-center gap-2">
+            <input type="checkbox" [(ngModel)]="loginScreen.useCustomWallpaper" class="accent-sky-400" />
+            <span>Usa sfondo dedicato per il Login</span>
+          </label>
         </div>
       </div>
 
@@ -244,11 +326,11 @@ import {
             <div class="flex flex-wrap items-center justify-between gap-2">
               <div class="flex flex-wrap items-center gap-2">
                 <span class="rounded bg-white/10 px-2 py-0.5 font-mono text-slate-200">
-                  Installata: v{{ st.installedVersion }}
+                  Installata: v{{ cleanVersion(st.installedVersion) || '1.0.0' }}
                 </span>
                 @if (st.updateAvailable && st.latestReleaseVersion) {
                   <span class="font-semibold text-amber-300">
-                    Disponibile aggiornamento (release {{ st.latestReleaseVersion }})
+                    Disponibile aggiornamento (release {{ cleanVersion(st.latestReleaseVersion) }})
                   </span>
                 } @else if (st.latestReleaseVersion) {
                   <span class="font-semibold text-emerald-300">
@@ -277,7 +359,7 @@ import {
               <div class="flex flex-wrap items-center gap-2 text-[11px] text-slate-300">
                 @if (st.latestReleaseVersion) {
                   <span class="rounded bg-sky-500/15 px-2 py-0.5 font-mono text-sky-300">
-                    Release v{{ st.latestReleaseVersion }}
+                    Release v{{ cleanVersion(st.latestReleaseVersion) }}
                   </span>
                 }
                 @if (st.latestReleaseDate) {
@@ -289,7 +371,7 @@ import {
             }
 
             @if (st.latestReleaseNotes) {
-              <div class="max-h-36 overflow-y-auto rounded-lg bg-black/40 p-2.5 text-[11px] leading-relaxed text-slate-300 whitespace-pre-wrap">{{ st.latestReleaseNotes }}</div>
+              <div class="max-h-36 overflow-y-auto rounded-lg bg-black/40 p-2.5 text-[11px] leading-relaxed text-slate-300 whitespace-pre-wrap">{{ formatNotes(st.latestReleaseNotes) }}</div>
             }
           </div>
         }
@@ -385,9 +467,17 @@ export class SettingsAppComponent implements OnInit {
 
   @Output() updated = new EventEmitter<NasSettingsResponse['settings']>();
 
-  nasName = 'NAS-OS';
+  nasName = 'SiloOS';
   hostname = '';
-  wallpaper: 'aurora' | 'midnight' | 'ocean' | 'carbon' = 'aurora';
+  wallpaper: WallpaperType = 'silo-landscape';
+  loginScreen: LoginScreenSettings = {
+    title: 'SiloOS',
+    subtitle: 'Accedi con le credenziali amministratore del NAS',
+    showClock: true,
+    showLogo: true,
+    blurBackground: true,
+    useCustomWallpaper: false,
+  };
 
   checkingUpdates = signal(false);
   updatingSystem = signal(false);
@@ -451,10 +541,15 @@ export class SettingsAppComponent implements OnInit {
   ];
 
   wallpapers: Array<{
-    id: 'aurora' | 'midnight' | 'ocean' | 'carbon';
+    id: WallpaperType;
     label: string;
     preview: string;
   }> = [
+    {
+      id: 'silo-landscape',
+      label: 'SiloOS Peak',
+      preview: 'bg-gradient-to-br from-sky-900 via-blue-950 to-slate-950',
+    },
     {
       id: 'aurora',
       label: 'Aurora',
@@ -482,6 +577,9 @@ export class SettingsAppComponent implements OnInit {
       next: (res) => {
         this.nasName = res.settings.nasName;
         this.wallpaper = res.settings.wallpaper;
+        if (res.settings.loginScreen) {
+          this.loginScreen = { ...res.settings.loginScreen };
+        }
         this.hostname = res.hostname;
         this.network.set(res.network);
 
@@ -541,6 +639,7 @@ export class SettingsAppComponent implements OnInit {
         nasName: this.nasName,
         hostname: this.hostname,
         wallpaper: this.wallpaper,
+        loginScreen: this.loginScreen,
         ai: {
           enabled: this.aiEnabled,
           providerType: this.aiProvider,
@@ -567,6 +666,42 @@ export class SettingsAppComponent implements OnInit {
       });
   }
 
+  async onWallpaperUpload(event: Event): Promise<void> {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    try {
+      const res = await this.api.uploadWallpaper(file);
+      this.wallpaper = 'custom';
+      this.feedbackOk.set(true);
+      this.feedback.set('Sfondo personalizzato caricato!');
+      this.updated.emit(res.settings);
+    } catch (err) {
+      this.feedbackOk.set(false);
+      this.feedback.set(err instanceof Error ? err.message : 'Errore upload sfondo');
+    } finally {
+      input.value = '';
+    }
+  }
+
+  async onLoginWallpaperUpload(event: Event): Promise<void> {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    try {
+      const res = await this.api.uploadLoginWallpaper(file);
+      this.loginScreen.useCustomWallpaper = true;
+      this.feedbackOk.set(true);
+      this.feedback.set('Sfondo dedicato per il Login caricato!');
+      this.updated.emit(res.settings);
+    } catch (err) {
+      this.feedbackOk.set(false);
+      this.feedback.set(err instanceof Error ? err.message : 'Errore upload sfondo login');
+    } finally {
+      input.value = '';
+    }
+  }
+
   checkUpdates(): void {
     this.checkingUpdates.set(true);
     this.updateError.set(null);
@@ -581,6 +716,28 @@ export class SettingsAppComponent implements OnInit {
         this.feedback.set(err?.error?.error ?? 'Errore controllo aggiornamenti');
       },
     });
+  }
+
+  cleanVersion(v: string | null | undefined): string {
+    return (v ?? '').trim().replace(/^v+/i, '');
+  }
+
+  formatNotes(raw: string): string {
+    return raw
+      .split('\n')
+      .filter((line) => !/^##\s+\[?\d+\.\d+\.\d+/.test(line.trim()))
+      .map((line) =>
+        line
+          .replace(/\(\[?[a-f0-9]{7,40}\]?\(https?:\/\/[^)]+\)\)/gi, '')
+          .replace(/\[([^\]]+)\]\(https?:\/\/[^)]+\)/gi, '$1')
+          .replace(/https?:\/\/\S+/gi, '')
+          .replace(/^###\s+/, '')
+          .replace(/^\*\s+/, '• ')
+          .trimEnd()
+      )
+      .filter((line, idx, arr) => !(line === '' && (idx === 0 || arr[idx - 1] === '')))
+      .join('\n')
+      .trim();
   }
 
   formatReleaseDate(isoDate: string): string {

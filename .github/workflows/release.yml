@@ -51,7 +51,7 @@ jobs:
         run: |
           chmod +x iso-builder/build-iso-docker.sh iso-builder/build-iso.sh
           ./iso-builder/build-iso-docker.sh
-          sha256sum nas-os-debian13-amd64.iso > nas-os-debian13-amd64.iso.sha256
+          sha256sum siloos-debian13-amd64.iso > siloos-debian13-amd64.iso.sha256
 
       - name: Publish Release with ISO Asset
         if: steps.check.outputs.should_release == 'true'

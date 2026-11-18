@@ -9,6 +9,7 @@ echo "==> [1/4] Building Backend (TypeScript) on host..."
 cd "${REPO_ROOT}/backend"
 npm ci
 npm run build
+npm prune --omit=dev
 
 echo "==> [2/4] Building Frontend (Angular) on host..."
 cd "${REPO_ROOT}/frontend"
@@ -27,4 +28,4 @@ docker run --rm --privileged \
   -v "${REPO_ROOT}:/workspace" \
   "${IMAGE_NAME}"
 
-echo "==> Done! ISO available at: ${REPO_ROOT}/nas-os-debian13-amd64.iso"
+echo "==> Done! ISO available at: ${REPO_ROOT}/siloos-debian13-amd64.iso"

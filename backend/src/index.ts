@@ -1,6 +1,7 @@
 import cors from 'cors';
 import express from 'express';
 import aiRouter from './routes/ai.js';
+import authRouter, { requireAuth } from './routes/auth.js';
 import filesRouter from './routes/files.js';
 import hubRouter from './routes/hub.js';
 import settingsRouter from './routes/settings.js';
@@ -22,6 +23,23 @@ app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+app.use('/api/auth', authRouter);
+
+// Protect API routes (except health, auth, and public wallpaper image)
+app.use('/api', (req, res, next) => {
+  if (
+    req.path === '/health' ||
+    req.path.startsWith('/auth') ||
+    req.path === '/settings/wallpaper/image' ||
+    req.path === '/settings/login-config' ||
+    req.path === '/settings/login-wallpaper/image'
+  ) {
+    next();
+    return;
+  }
+  requireAuth(req, res, next);
+});
+
 app.use('/api/hub', hubRouter);
 app.use('/api/stacks', stacksRouter);
 app.use('/api/system', systemRouter);
@@ -40,7 +58,7 @@ async function start(): Promise<void> {
   }
 
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`NAS-OS Backend listening on http://0.0.0.0:${PORT}`);
+    console.log(`SiloOS Backend listening on http://0.0.0.0:${PORT}`);
     systemEvents.startBlockDeviceMonitor();
   });
 }

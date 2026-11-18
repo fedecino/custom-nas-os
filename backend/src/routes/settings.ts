@@ -1,4 +1,5 @@
 import { execFile, spawn } from 'node:child_process';
+import { createWriteStream } from 'node:fs';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -19,16 +20,26 @@ export interface AiProviderSettings {
   apiKey: string;
 }
 
+export interface LoginScreenSettings {
+  title: string;
+  subtitle: string;
+  showClock: boolean;
+  showLogo: boolean;
+  blurBackground: boolean;
+  useCustomWallpaper: boolean;
+}
+
 export interface NasUiSettings {
   nasName: string;
-  wallpaper: 'aurora' | 'midnight' | 'ocean' | 'carbon';
+  wallpaper: 'silo-landscape' | 'aurora' | 'midnight' | 'ocean' | 'carbon' | 'custom';
   repoUrl: string;
   ai: AiProviderSettings;
+  loginScreen: LoginScreenSettings;
 }
 
 const DEFAULT_SETTINGS: NasUiSettings = {
-  nasName: 'NAS-OS',
-  wallpaper: 'aurora',
+  nasName: 'SiloOS',
+  wallpaper: 'silo-landscape',
   repoUrl: 'https://github.com/fedecino/custom-nas-os.git',
   ai: {
     enabled: false,
@@ -36,6 +47,14 @@ const DEFAULT_SETTINGS: NasUiSettings = {
     baseUrl: 'http://localhost:11434/v1',
     model: 'llama3.2',
     apiKey: '',
+  },
+  loginScreen: {
+    title: 'SiloOS',
+    subtitle: 'Accedi con le credenziali amministratore del NAS',
+    showClock: true,
+    showLogo: true,
+    blurBackground: true,
+    useCustomWallpaper: false,
   },
 };
 
@@ -50,6 +69,10 @@ export async function readFullSettings(): Promise<NasUiSettings> {
       ai: {
         ...DEFAULT_SETTINGS.ai,
         ...(parsed.ai ?? {}),
+      },
+      loginScreen: {
+        ...DEFAULT_SETTINGS.loginScreen,
+        ...(parsed.loginScreen ?? {}),
       },
     };
   } catch {
@@ -70,6 +93,7 @@ function sanitizeSettingsForClient(settings: NasUiSettings) {
     nasName: settings.nasName,
     wallpaper: settings.wallpaper,
     repoUrl: settings.repoUrl,
+    loginScreen: settings.loginScreen,
     ai: {
       enabled: settings.ai.enabled,
       providerType: settings.ai.providerType,
@@ -89,7 +113,7 @@ async function getInstalledVersion(): Promise<string> {
   ];
   for (const file of candidates) {
     try {
-      const content = (await fs.readFile(file, 'utf-8')).trim().replace(/^v/, '');
+      const content = (await fs.readFile(file, 'utf-8')).trim().replace(/^v+/i, '');
       if (content) return content;
     } catch {
       // try next
@@ -150,12 +174,13 @@ router.get('/', async (_req: Request, res: Response) => {
 });
 
 router.put('/', async (req: Request, res: Response) => {
-  const { hostname, nasName, wallpaper, repoUrl, ai } = req.body as {
+  const { hostname, nasName, wallpaper, repoUrl, ai, loginScreen } = req.body as {
     hostname?: string;
     nasName?: string;
     wallpaper?: NasUiSettings['wallpaper'];
     repoUrl?: string;
     ai?: Partial<AiProviderSettings> & { clearApiKey?: boolean };
+    loginScreen?: Partial<LoginScreenSettings>;
   };
 
   try {
@@ -172,6 +197,12 @@ router.put('/', async (req: Request, res: Response) => {
       nasName: nasName?.trim() || current.nasName,
       wallpaper: wallpaper || current.wallpaper,
       repoUrl: repoUrl?.trim() || current.repoUrl,
+      loginScreen: {
+        ...current.loginScreen,
+        ...(loginScreen ?? {}),
+        title: loginScreen?.title?.trim() || current.loginScreen.title,
+        subtitle: loginScreen?.subtitle?.trim() || current.loginScreen.subtitle,
+      },
       ai: {
         enabled: ai?.enabled ?? current.ai.enabled,
         providerType: ai?.providerType ?? current.ai.providerType,
@@ -210,7 +241,7 @@ router.put('/', async (req: Request, res: Response) => {
 
 const SRC_DIR = '/opt/nas-os/src';
 
-async function verifySudoUserPassword(
+export async function verifySudoUserPassword(
   username: string,
   password: string
 ): Promise<boolean> {
@@ -406,6 +437,93 @@ router.post('/updates/apply', async (req: Request, res: Response) => {
     sendEvent('done', { exitCode: code ?? 0, success: code === 0 });
     if (!res.writableEnded) res.end();
   });
+});
+
+const WALLPAPER_PATH = path.join(DATA_DIR, '.nas-os', 'custom-wallpaper');
+
+router.post('/wallpaper', async (req: Request, res: Response) => {
+  try {
+    await fs.mkdir(path.dirname(WALLPAPER_PATH), { recursive: true });
+    const writeStream = createWriteStream(WALLPAPER_PATH);
+    req.pipe(writeStream);
+
+    writeStream.on('finish', async () => {
+      const current = await readFullSettings();
+      current.wallpaper = 'custom';
+      await fs.writeFile(SETTINGS_FILE, JSON.stringify(current, null, 2), 'utf-8');
+      if (!res.headersSent) {
+        res.json({ success: true, settings: sanitizeSettingsForClient(current) });
+      }
+    });
+
+    writeStream.on('error', (err) => {
+      if (!res.headersSent) res.status(500).json({ error: err.message });
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Wallpaper upload failed';
+    res.status(500).json({ error: message });
+  }
+});
+
+router.get('/wallpaper/image', async (_req: Request, res: Response) => {
+  try {
+    await fs.access(WALLPAPER_PATH);
+    res.sendFile(path.resolve(WALLPAPER_PATH));
+  } catch {
+    res.status(404).end();
+  }
+});
+
+const LOGIN_WALLPAPER_PATH = path.join(DATA_DIR, '.nas-os', 'login-wallpaper');
+
+router.get('/login-config', async (_req: Request, res: Response) => {
+  try {
+    const settings = await readFullSettings();
+    res.json({
+      nasName: settings.nasName,
+      wallpaper: settings.wallpaper,
+      loginScreen: settings.loginScreen,
+    });
+  } catch {
+    res.json({
+      nasName: DEFAULT_SETTINGS.nasName,
+      wallpaper: DEFAULT_SETTINGS.wallpaper,
+      loginScreen: DEFAULT_SETTINGS.loginScreen,
+    });
+  }
+});
+
+router.post('/login-wallpaper', async (req: Request, res: Response) => {
+  try {
+    await fs.mkdir(path.dirname(LOGIN_WALLPAPER_PATH), { recursive: true });
+    const writeStream = createWriteStream(LOGIN_WALLPAPER_PATH);
+    req.pipe(writeStream);
+
+    writeStream.on('finish', async () => {
+      const current = await readFullSettings();
+      current.loginScreen.useCustomWallpaper = true;
+      await fs.writeFile(SETTINGS_FILE, JSON.stringify(current, null, 2), 'utf-8');
+      if (!res.headersSent) {
+        res.json({ success: true, settings: sanitizeSettingsForClient(current) });
+      }
+    });
+
+    writeStream.on('error', (err) => {
+      if (!res.headersSent) res.status(500).json({ error: err.message });
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Login wallpaper upload failed';
+    res.status(500).json({ error: message });
+  }
+});
+
+router.get('/login-wallpaper/image', async (_req: Request, res: Response) => {
+  try {
+    await fs.access(LOGIN_WALLPAPER_PATH);
+    res.sendFile(path.resolve(LOGIN_WALLPAPER_PATH));
+  } catch {
+    res.status(404).end();
+  }
 });
 
 export default router;

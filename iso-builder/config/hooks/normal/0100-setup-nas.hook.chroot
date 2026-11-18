@@ -12,8 +12,8 @@ if [ -f /etc/samba/smb.conf ] && ! grep -q "nas-os.conf" /etc/samba/smb.conf; th
   echo -e "\ninclude = /etc/samba/smb.d/nas-os.conf" >> /etc/samba/smb.conf
 fi
 
-echo "[NAS-OS Hook] Installing backend production dependencies..."
-if [ -d /opt/nas-os/backend ]; then
+echo "[NAS-OS Hook] Checking backend production dependencies..."
+if [ -d /opt/nas-os/backend ] && [ ! -d /opt/nas-os/backend/node_modules ]; then
   cd /opt/nas-os/backend
   npm ci --omit=dev
 fi

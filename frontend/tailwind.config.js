@@ -5,12 +5,13 @@ module.exports = {
     extend: {
       colors: {
         nas: {
-          bg: "#090d16",
-          panel: "#111827",
-          card: "#161f31",
-          border: "#233048",
+          bg: "#090e1a",
+          panel: "#0f172a",
+          card: "#141e33",
+          border: "#1e293b",
           accent: "#38bdf8",
-          accentHover: "#0ea5e9"
+          accentHover: "#0ea5e9",
+          led: "#00ff88"
         }
       }
     }

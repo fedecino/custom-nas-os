@@ -4,7 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 WORK_DIR="${LB_WORK_DIR:-${SCRIPT_DIR}/work}"
-OUTPUT_ISO="${REPO_ROOT}/nas-os-debian13-amd64.iso"
+OUTPUT_ISO="${REPO_ROOT}/siloos-debian13-amd64.iso"
 
 if [ "$(id -u)" -ne 0 ]; then
   echo "ERROR: build-iso.sh must be run as root (or via build-iso-docker.sh)"
@@ -29,6 +29,7 @@ if [ "${SKIP_APP_BUILD:-0}" != "1" ]; then
   cd "${REPO_ROOT}/backend"
   npm ci
   npm run build
+  npm prune --omit=dev
 
   echo "==> [3/6] Building Frontend (Angular production bundle)..."
   cd "${REPO_ROOT}/frontend"
@@ -52,10 +53,11 @@ lb config \
   --debian-installer-gui false \
   --archive-areas "main contrib non-free non-free-firmware" \
   --debootstrap-options "--include=ca-certificates" \
+  --compression gzip \
   --apt-recommends false \
   --memtest none \
-  --iso-application "NAS-OS" \
-  --iso-volume "NAS-OS-DEBIAN13" \
+  --iso-application "SiloOS" \
+  --iso-volume "SILOOS-DEBIAN13" \
   --bootappend-live "boot=live components quiet loglevel=3" \
   --bootappend-install "cdrom-detect/try-usb=true quiet loglevel=3"
 
@@ -84,6 +86,7 @@ echo "deb [arch=amd64] https://download.docker.com/linux/debian trixie stable" \
 cp -r "${REPO_ROOT}/backend/dist" config/includes.chroot/opt/nas-os/backend/
 cp "${REPO_ROOT}/backend/package.json" config/includes.chroot/opt/nas-os/backend/
 cp "${REPO_ROOT}/backend/package-lock.json" config/includes.chroot/opt/nas-os/backend/
+[ -d "${REPO_ROOT}/backend/node_modules" ] && cp -r "${REPO_ROOT}/backend/node_modules" config/includes.chroot/opt/nas-os/backend/
 [ -f "${REPO_ROOT}/VERSION" ] && cp "${REPO_ROOT}/VERSION" config/includes.chroot/opt/nas-os/VERSION
 cp -r "${REPO_ROOT}/frontend/dist/nas-os-frontend" config/includes.chroot/opt/nas-os/frontend/dist/
 cp "${SCRIPT_DIR}/../system/nginx/nas-os.conf" config/includes.chroot/etc/nginx/sites-available/nas-os.conf

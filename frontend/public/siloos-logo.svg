@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 200" width="600" height="200">
+  <defs>
+    <radialGradient id="discGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.35" />
+      <stop offset="100%" stop-color="#0f172a" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+  <rect width="600" height="200" rx="24" fill="#0f172a" />
+  <circle cx="348" cy="98" r="65" fill="url(#discGlow)" />
+  <!-- Pure Vector Wordmark: SiloOs -->
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M 155 72 L 124 72 C 110 72 110 100 124 100 L 146 100 C 160 100 160 130 146 130 L 114 130" stroke="#f8fafc" stroke-width="11" />
+    <line x1="184" y1="88" x2="184" y2="130" stroke="#f8fafc" stroke-width="11" />
+    <circle cx="184" cy="68" r="6" fill="#38bdf8" stroke="none" />
+    <line x1="212" y1="64" x2="212" y2="130" stroke="#f8fafc" stroke-width="11" />
+    <circle cx="256" cy="108" r="21" stroke="#f8fafc" stroke-width="11" />
+    <!-- Optical/HDD Platter 'O' -->
+    <circle cx="348" cy="98" r="34" stroke="#38bdf8" stroke-width="10" />
+    <circle cx="348" cy="98" r="10" stroke="#00ff88" stroke-width="5" />
+    <path d="M 348 64 A 34 34 0 0 1 382 98" stroke="#ffffff" stroke-width="4" />
+    <!-- 's' -->
+    <path d="M 444 86 L 416 86 C 404 86 404 108 416 108 L 434 108 C 446 108 446 130 434 130 L 404 130" stroke="#38bdf8" stroke-width="11" />
+  </g>
+</svg>

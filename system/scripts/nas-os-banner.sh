@@ -27,7 +27,7 @@ generate_banner() {
     echo "     -> sudo nas-os-install"
   fi
   echo "================================================================="
-  echo "   Benvenuto in NAS-OS (Debian 13 Trixie) - Host: ${HOSTNAME_VAL}"
+  echo "   Benvenuto in SiloOS (Debian 13 Trixie) - Host: ${HOSTNAME_VAL}"
   if [ -d /run/live/medium ]; then
     echo ""
     echo "   Modalita' LIVE attiva: per installare NAS-OS su SSD:"

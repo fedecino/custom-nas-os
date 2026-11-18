@@ -22,6 +22,7 @@ import { AiAssistantComponent } from './components/ai-assistant/ai-assistant.com
 import { ServicesManagerComponent } from './components/services-manager/services-manager.component';
 import { LogsViewerComponent } from './components/logs-viewer/logs-viewer.component';
 import { FileManagerComponent } from './components/file-manager/file-manager.component';
+import { LoginComponent } from './components/login/login.component';
 
 type ActiveWindow =
   | 'store'
@@ -51,27 +52,48 @@ type ActiveWindow =
     ServicesManagerComponent,
     LogsViewerComponent,
     FileManagerComponent,
+    LoginComponent,
   ],
   template: `
+    @if (!authChecked()) {
+      <div class="flex min-h-screen flex-col items-center justify-center bg-[#090e1a] text-slate-300">
+        <img src="/siloos-icon-disco.svg" alt="SiloOs" class="h-16 w-16 animate-pulse" />
+        <span class="mt-3 text-xs tracking-wider uppercase text-[#38bdf8]">Avvio SiloOs...</span>
+      </div>
+    } @else if (!authenticated()) {
+      <app-login
+        [backgroundStyle]="wallpaperStyle()"
+        (loggedIn)="onLoggedIn($event)"
+      />
+    } @else {
     <div
-      class="relative flex min-h-screen flex-col overflow-x-hidden text-slate-100 transition-colors duration-700"
+      class="relative flex min-h-screen flex-col overflow-x-hidden bg-cover bg-center text-slate-100 transition-colors duration-700"
       [ngClass]="wallpaperClass()"
+      [ngStyle]="wallpaperStyle()"
     >
-      <!-- Ambient CasaOS-style sky/mountain glow -->
+      <!-- Ambient SiloOs glow -->
       <div class="pointer-events-none fixed inset-0 overflow-hidden">
         <div
-          class="absolute -left-24 -top-24 h-[28rem] w-[28rem] rounded-full bg-sky-400/20 blur-[140px]"
+          class="absolute -left-24 -top-24 h-[28rem] w-[28rem] rounded-full bg-[#38bdf8]/15 blur-[140px]"
         ></div>
         <div
-          class="absolute -bottom-32 right-0 h-[30rem] w-[30rem] rounded-full bg-cyan-500/15 blur-[140px]"
+          class="absolute -bottom-32 right-0 h-[30rem] w-[30rem] rounded-full bg-[#00ff88]/10 blur-[140px]"
         ></div>
       </div>
 
       <!-- Minimalist Top Icon Bar (CasaOS style) -->
       <header
-        class="relative z-20 flex items-center justify-between px-5 py-2.5 backdrop-blur-md bg-black/20 border-b border-white/10"
+        class="relative z-20 flex items-center justify-between border-b border-[#1e293b] bg-[#090e1a]/75 px-5 py-2.5 backdrop-blur-md"
       >
         <div class="flex items-center gap-2">
+          <img
+            src="/siloos-icon-disco.svg"
+            alt="SiloOs"
+            class="mr-1 h-7 w-7 rounded-lg shadow"
+          />
+          <span class="mr-2 text-sm font-bold tracking-tight text-[#f8fafc]">
+            Silo<span class="text-[#38bdf8]">Os</span>
+          </span>
           <button
             type="button"
             (click)="activeWindow.set('users')"
@@ -197,6 +219,18 @@ type ActiveWindow =
           @if (systemInfo(); as sys) {
             <span class="font-mono text-[11px] text-slate-300">{{ sys.hostname }}</span>
           }
+          @if (currentUser(); as user) {
+            <span class="rounded-full bg-white/10 px-2.5 py-0.5 text-[11px] text-slate-200">
+              {{ user }}
+            </span>
+          }
+          <button
+            type="button"
+            (click)="logout()"
+            class="rounded-lg border border-white/15 bg-white/5 px-2.5 py-1 text-[11px] text-slate-200 hover:bg-white/15"
+          >
+            Esci
+          </button>
         </div>
       </header>
 
@@ -307,7 +341,7 @@ type ActiveWindow =
                       cy="18"
                       r="15"
                       fill="none"
-                      stroke="#34d399"
+                      stroke="#00ff88"
                       stroke-width="3.2"
                       stroke-linecap="round"
                       [attr.stroke-dasharray]="94.25"
@@ -348,10 +382,10 @@ type ActiveWindow =
               class="mt-4 flex items-center justify-between border-t border-white/10 pt-3 text-[11px] text-slate-300"
             >
               <span>
-                ↓ <strong class="text-sky-300">{{ formatSpeed(systemInfo()?.network?.rxBytesPerSec ?? 0) }}</strong>
+                ↓ <strong class="text-[#38bdf8]">{{ formatSpeed(systemInfo()?.network?.rxBytesPerSec ?? 0) }}</strong>
               </span>
               <span>
-                ↑ <strong class="text-emerald-300">{{ formatSpeed(systemInfo()?.network?.txBytesPerSec ?? 0) }}</strong>
+                ↑ <strong class="text-[#00ff88]">{{ formatSpeed(systemInfo()?.network?.txBytesPerSec ?? 0) }}</strong>
               </span>
             </div>
           </div>
@@ -743,7 +777,7 @@ type ActiveWindow =
                   <app-users-manager />
                 }
                 @case ('settings') {
-                  <app-settings-app (updated)="uiSettings.set($event)" />
+                  <app-settings-app (updated)="onSettingsUpdated($event)" />
                 }
                 @case ('ai') {
                   <app-ai-assistant
@@ -911,10 +945,16 @@ type ActiveWindow =
         </div>
       }
     </div>
+    }
   `,
 })
 export class AppComponent implements OnInit, OnDestroy {
   private readonly api = inject(ApiService);
+
+  authChecked = signal(false);
+  authenticated = signal(false);
+  currentUser = signal<string | null>(null);
+  wallpaperVersion = signal(Date.now());
 
   activeWindow = signal<ActiveWindow>(null);
   systemInfo = signal<SystemInfo | null>(null);
@@ -932,8 +972,8 @@ export class AppComponent implements OnInit, OnDestroy {
   desktopSearch = '';
 
   uiSettings = signal<NasSettingsResponse['settings']>({
-    nasName: 'NAS-OS',
-    wallpaper: 'aurora',
+    nasName: 'SiloOS',
+    wallpaper: 'silo-landscape',
     ai: {
       enabled: false,
       providerType: 'ollama',
@@ -963,8 +1003,45 @@ export class AppComponent implements OnInit, OnDestroy {
   ngOnInit(): void {
     this.updateClock();
     this.clockTimer = setInterval(() => this.updateClock(), 1000);
+    this.api.getAuthStatus().subscribe({
+      next: (res) => {
+        this.authChecked.set(true);
+        if (res.authenticated) {
+          this.authenticated.set(true);
+          this.currentUser.set(res.username);
+          this.startAuthenticatedSession();
+        }
+      },
+      error: () => {
+        this.authChecked.set(true);
+      },
+    });
+  }
+
+  onLoggedIn(username: string): void {
+    this.authenticated.set(true);
+    this.currentUser.set(username);
+    this.startAuthenticatedSession();
+  }
+
+  logout(): void {
+    this.api.logout().subscribe({
+      next: () => {
+        this.authenticated.set(false);
+        this.currentUser.set(null);
+        this.activeWindow.set(null);
+        this.systemEventsSource?.close();
+        if (this.telemetryTimer) clearInterval(this.telemetryTimer);
+        if (this.refreshTimer) clearInterval(this.refreshTimer);
+      },
+    });
+  }
+
+  private startAuthenticatedSession(): void {
     this.refreshTelemetry();
     this.refreshAll();
+    if (this.telemetryTimer) clearInterval(this.telemetryTimer);
+    if (this.refreshTimer) clearInterval(this.refreshTimer);
     this.telemetryTimer = setInterval(() => this.refreshTelemetry(), 2000);
     this.refreshTimer = setInterval(() => this.refreshAll(), 6000);
 
@@ -976,6 +1053,7 @@ export class AppComponent implements OnInit, OnDestroy {
       error: () => {},
     });
 
+    this.systemEventsSource?.close();
     this.systemEventsSource = this.api.streamSystemEvents(
       (evt) => {
         this.notifications.update((list) => [evt, ...list].slice(0, 30));
@@ -986,6 +1064,13 @@ export class AppComponent implements OnInit, OnDestroy {
         this.notifications.set(history);
       }
     );
+  }
+
+  onSettingsUpdated(settings: NasSettingsResponse['settings']): void {
+    this.uiSettings.set(settings);
+    if (settings.wallpaper === 'custom') {
+      this.wallpaperVersion.set(Date.now());
+    }
   }
 
   ngOnDestroy(): void {
@@ -1096,9 +1181,26 @@ export class AppComponent implements OnInit, OnDestroy {
         return 'bg-gradient-to-br from-[#071929] via-[#0c3554] to-[#0a2538]';
       case 'carbon':
         return 'bg-gradient-to-br from-zinc-950 via-neutral-900 to-zinc-900';
-      default:
+      case 'aurora':
         return 'bg-gradient-to-br from-[#092138] via-[#123d5e] to-[#0b263d]';
+      default:
+        return 'bg-[#090e1a]';
     }
+  }
+
+  wallpaperStyle(): Record<string, string> {
+    const wp = this.uiSettings().wallpaper;
+    if (wp === 'custom') {
+      return {
+        'background-image': `url('/api/settings/wallpaper/image?v=${this.wallpaperVersion()}')`,
+      };
+    }
+    if (wp === 'silo-landscape') {
+      return {
+        'background-image': "url('/silo-wallpaper.svg')",
+      };
+    }
+    return {};
   }
 
   getWindowTitle(win: Exclude<ActiveWindow, null>): string {
