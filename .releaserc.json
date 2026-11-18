@@ -39,6 +39,20 @@
         "message": "chore(release): ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"
       }
     ],
-    "@semantic-release/github"
+    [
+      "@semantic-release/github",
+      {
+        "assets": [
+          {
+            "path": "nas-os-debian13-amd64.iso",
+            "label": "NAS-OS Debian 13 (amd64) Bootable ISO"
+          },
+          {
+            "path": "nas-os-debian13-amd64.iso.sha256",
+            "label": "SHA256 Checksum"
+          }
+        ]
+      }
+    ]
   ]
 }

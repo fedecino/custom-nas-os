@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   release:
-    name: Create Release
+    name: Create Release & Build ISO
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -26,7 +26,35 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Run semantic-release
+      - name: Check if a new release is needed
+        id: check
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          DRY_OUT=$(npx --yes \
+            -p semantic-release@24 \
+            -p conventional-changelog-conventionalcommits@8 \
+            -p @semantic-release/changelog@6 \
+            -p @semantic-release/exec@7 \
+            -p @semantic-release/git@10 \
+            -p @semantic-release/github@11 \
+            semantic-release --dry-run 2>&1 || true)
+          echo "$DRY_OUT"
+          if echo "$DRY_OUT" | grep -q "The next release version is"; then
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build x86_64 Bootable ISO via Docker
+        if: steps.check.outputs.should_release == 'true'
+        run: |
+          chmod +x iso-builder/build-iso-docker.sh iso-builder/build-iso.sh
+          ./iso-builder/build-iso-docker.sh
+          sha256sum nas-os-debian13-amd64.iso > nas-os-debian13-amd64.iso.sha256
+
+      - name: Publish Release with ISO Asset
+        if: steps.check.outputs.should_release == 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
