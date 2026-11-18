@@ -1,3 +1,9 @@
+## [1.1.1](https://github.com/fedecino/custom-nas-os/compare/v1.1.0...v1.1.1) (2026-11-18)
+
+### Bug Fixes
+
+* clean release note ([339a486](https://github.com/fedecino/custom-nas-os/commit/339a48661f87083c809d9aca376a006432797128))
+
 ## [1.1.0](https://github.com/fedecino/custom-nas-os/compare/v1.0.0...v1.1.0) (2026-11-18)
 
 ### Features
