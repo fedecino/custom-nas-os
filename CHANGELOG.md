@@ -1,3 +1,14 @@
+## [1.9.0](https://github.com/fedecino/custom-nas-os/compare/v1.8.0...v1.9.0) (2026-11-18)
+
+### Features
+
+* apertura file da file manager ([f1b5a50](https://github.com/fedecino/custom-nas-os/commit/f1b5a5063a6e55a8a80a958e4eec6de2d1c2d9f1))
+* modifica  docker con agente ai ([b330c10](https://github.com/fedecino/custom-nas-os/commit/b330c108d4984645719394a1cf62b70b4e3ac53a))
+
+### Bug Fixes
+
+* autorizzazioni diversificate per utente ([db0f567](https://github.com/fedecino/custom-nas-os/commit/db0f5672be7509c0a0eeafed0c5b4b7ed652be87))
+
 ## [1.8.0](https://github.com/fedecino/custom-nas-os/compare/v1.7.0...v1.8.0) (2026-11-18)
 
 ### Features
