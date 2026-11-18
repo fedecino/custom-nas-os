@@ -1,3 +1,9 @@
+## [1.3.0](https://github.com/fedecino/custom-nas-os/compare/v1.2.0...v1.3.0) (2026-11-18)
+
+### Features
+
+* login manager / new logo / new Os Name ([75fc5fd](https://github.com/fedecino/custom-nas-os/commit/75fc5fd606ffc942dae34dc8787158ff19c05052))
+
 ## [1.2.0](https://github.com/fedecino/custom-nas-os/compare/v1.1.1...v1.2.0) (2026-11-18)
 
 ### Features
