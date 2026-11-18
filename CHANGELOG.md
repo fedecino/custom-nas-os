@@ -1,3 +1,15 @@
+## [1.7.0](https://github.com/fedecino/custom-nas-os/compare/v1.6.0...v1.7.0) (2026-11-18)
+
+### Features
+
+* icone applicazioni ([0878529](https://github.com/fedecino/custom-nas-os/commit/0878529450ee2fd1b20df8b3a4417e4d19f0b424))
+* implementata selezione con combinazione tasti e mouse ([851a8fa](https://github.com/fedecino/custom-nas-os/commit/851a8fab29dd16696088e844785c4449ba56e21a))
+
+### Bug Fixes
+
+* fix nome os / fix aggiornamenti ([ab92fdc](https://github.com/fedecino/custom-nas-os/commit/ab92fdc59adae9f431b7dbbf807c73501bd2b96b))
+* miglioramento creazione della ISO in release ([c9e6da0](https://github.com/fedecino/custom-nas-os/commit/c9e6da0d500707bf907fd4863d636d8edae29f2a))
+
 ## [1.6.0](https://github.com/fedecino/custom-nas-os/compare/v1.5.0...v1.6.0) (2026-11-18)
 
 ### Features
