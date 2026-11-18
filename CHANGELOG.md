@@ -1,3 +1,9 @@
+## [1.4.1](https://github.com/fedecino/custom-nas-os/compare/v1.4.0...v1.4.1) (2026-11-18)
+
+### Bug Fixes
+
+* comportamento del click sulle icone delle applicazioni in docker ([0f0b038](https://github.com/fedecino/custom-nas-os/commit/0f0b038b8eed57b3ea54e8a6c1f735b04004ee73))
+
 ## [1.4.0](https://github.com/fedecino/custom-nas-os/compare/v1.3.0...v1.4.0) (2026-11-18)
 
 ### Features
