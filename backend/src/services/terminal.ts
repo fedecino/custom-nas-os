@@ -5,8 +5,42 @@ import { Writable } from 'node:stream';
 import { WebSocketServer, WebSocket } from 'ws';
 import { authenticateCookieHeader } from '../routes/auth.js';
 
+interface LinuxUserEntry {
+  username: string;
+  uid: number;
+  gid: number;
+  home: string;
+  shell: string;
+}
+
+function lookupLinuxUser(username: string): LinuxUserEntry | null {
+  if (!/^[a-z_][a-z0-9_-]{0,30}$/.test(username)) return null;
+  try {
+    const passwd = fs.readFileSync('/etc/passwd', 'utf-8');
+    const line = passwd.split('\n').find((l) => l.startsWith(`${username}:`));
+    if (!line) return null;
+    const parts = line.split(':');
+    if (parts.length < 7) return null;
+    return {
+      username,
+      uid: Number(parts[2]),
+      gid: Number(parts[3]),
+      home: parts[5] || `/home/${username}`,
+      shell: parts[6] || '/bin/bash',
+    };
+  } catch {
+    return null;
+  }
+}
+
 const PTY_PYTHON_RUNNER = `
 import os, pty, select, fcntl, termios, struct, signal
+
+target_user = os.environ.get('SILO_TERM_USER', '')
+target_uid = os.environ.get('SILO_TERM_UID', '')
+target_gid = os.environ.get('SILO_TERM_GID', '')
+target_home = os.environ.get('SILO_TERM_HOME', '')
+target_shell = os.environ.get('SILO_TERM_SHELL', '/bin/bash')
 
 master, slave = pty.openpty()
 pid = os.fork()
@@ -19,7 +53,25 @@ if pid == 0:
     os.dup2(slave, 2)
     if slave > 2:
         os.close(slave)
-    shell = os.environ.get('SHELL', '/bin/bash')
+
+    if os.geteuid() == 0 and target_uid.isdigit() and target_gid.isdigit():
+        uid = int(target_uid)
+        gid = int(target_gid)
+        if target_user:
+            try:
+                os.initgroups(target_user, gid)
+            except Exception:
+                pass
+        os.setgid(gid)
+        os.setuid(uid)
+        if target_home and os.path.isdir(target_home):
+            os.environ['HOME'] = target_home
+            os.chdir(target_home)
+        if target_user:
+            os.environ['USER'] = target_user
+            os.environ['LOGNAME'] = target_user
+
+    shell = target_shell if os.path.exists(target_shell) and 'nologin' not in target_shell and 'false' not in target_shell else '/bin/bash'
     if not os.path.exists(shell):
         shell = '/bin/sh'
     os.execvp(shell, [shell, '-l'])
@@ -68,12 +120,34 @@ else:
         pass
 `;
 
-function spawnPtyShell(): { proc: ChildProcess; ctlStream: Writable | null } {
-  const startDir = fs.existsSync('/DATA') ? '/DATA' : process.env.HOME || '/';
-  const env = {
+function spawnPtyShell(username: string): { proc: ChildProcess; ctlStream: Writable | null } {
+  const runningAsRoot = typeof process.getuid === 'function' && process.getuid() === 0;
+  const userEntry = lookupLinuxUser(username);
+
+  if (runningAsRoot && !userEntry) {
+    throw new Error(`Utente di sistema "${username}" non trovato`);
+  }
+
+  const startDir =
+    userEntry && fs.existsSync(userEntry.home)
+      ? userEntry.home
+      : fs.existsSync(`/DATA/Homes/${username}`)
+      ? `/DATA/Homes/${username}`
+      : process.env.HOME || '/';
+
+  const env: NodeJS.ProcessEnv = {
     ...process.env,
     TERM: 'xterm-256color',
     COLORTERM: 'truecolor',
+    ...(userEntry
+      ? {
+          SILO_TERM_USER: userEntry.username,
+          SILO_TERM_UID: String(userEntry.uid),
+          SILO_TERM_GID: String(userEntry.gid),
+          SILO_TERM_HOME: userEntry.home,
+          SILO_TERM_SHELL: userEntry.shell,
+        }
+      : {}),
   };
 
   if (fs.existsSync('/usr/bin/python3') || fs.existsSync('/bin/python3')) {
@@ -86,7 +160,20 @@ function spawnPtyShell(): { proc: ChildProcess; ctlStream: Writable | null } {
     return { proc, ctlStream };
   }
 
-  // Fallback using util-linux `script`
+  // Fallback using util-linux `su` / `script`
+  if (runningAsRoot && userEntry) {
+    const proc = spawn(
+      'su',
+      ['-', userEntry.username, '-s', '/bin/bash', '-c', 'exec script -qfc "/bin/bash -i" /dev/null'],
+      {
+        cwd: startDir,
+        env,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      }
+    );
+    return { proc, ctlStream: null };
+  }
+
   const proc = spawn('script', ['-qfc', '/bin/bash -i', '/dev/null'], {
     cwd: startDir,
     env,
@@ -114,7 +201,7 @@ export function attachTerminalWebSocket(server: http.Server): void {
       }
 
       wss.handleUpgrade(req, socket, head, (ws) => {
-        wss.emit('connection', ws, req);
+        wss.emit('connection', ws, req, session.username);
       });
     } catch {
       socket.write('HTTP/1.1 500 Internal Server Error\r\n\r\n');
@@ -122,8 +209,17 @@ export function attachTerminalWebSocket(server: http.Server): void {
     }
   });
 
-  wss.on('connection', (ws: WebSocket) => {
-    const { proc, ctlStream } = spawnPtyShell();
+  wss.on('connection', (ws: WebSocket, _req: http.IncomingMessage, username: string) => {
+    let proc: ChildProcess;
+    let ctlStream: Writable | null;
+    try {
+      ({ proc, ctlStream } = spawnPtyShell(username));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Errore avvio terminale';
+      ws.send(JSON.stringify({ type: 'output', data: `\r\n\x1b[31m${msg}\x1b[0m\r\n` }));
+      ws.close();
+      return;
+    }
 
     const sendOutput = (chunk: Buffer) => {
       if (ws.readyState === WebSocket.OPEN) {
