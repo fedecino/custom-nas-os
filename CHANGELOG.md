@@ -1,3 +1,14 @@
+## [1.8.0](https://github.com/fedecino/custom-nas-os/compare/v1.7.0...v1.8.0) (2026-11-18)
+
+### Features
+
+* app store modifcato ([4cd4054](https://github.com/fedecino/custom-nas-os/commit/4cd405452e58bd8b9e679bc266c4e8c3bd9f39bf))
+
+### Bug Fixes
+
+* samba share e utenti ([fc738ba](https://github.com/fedecino/custom-nas-os/commit/fc738ba76999c7b94b342e2e7749a398f24a1df6))
+* utente non root da terminale ([c6f8683](https://github.com/fedecino/custom-nas-os/commit/c6f8683b42956a96dc2c0d1db6d6052bf5ece405))
+
 ## [1.7.0](https://github.com/fedecino/custom-nas-os/compare/v1.6.0...v1.7.0) (2026-11-18)
 
 ### Features
