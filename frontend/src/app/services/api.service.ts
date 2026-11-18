@@ -172,6 +172,7 @@ export interface AiSettingsView {
 
 export interface NasSettingsResponse {
   hostname: string;
+  version?: string;
   settings: {
     nasName: string;
     wallpaper: 'aurora' | 'midnight' | 'ocean' | 'carbon';
@@ -185,14 +186,11 @@ export interface NasSettingsResponse {
 }
 
 export interface SystemUpdateStatus {
-  initialized: boolean;
-  currentCommit: string | null;
-  remoteCommit: string | null;
-  behindCount: number;
-  updateAvailable: boolean;
+  installedVersion: string;
   latestReleaseVersion: string | null;
   latestReleaseDate: string | null;
   latestReleaseNotes: string | null;
+  updateAvailable: boolean;
 }
 
 export interface AiChatMessage {
@@ -777,14 +775,13 @@ export class ApiService {
   }
 
   async applySystemUpdateSse(
-    username: string,
     password: string,
     onLog: (msg: string) => void
   ): Promise<void> {
     const response = await fetch('/api/settings/updates/apply', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password }),
+      body: JSON.stringify({ password }),
     });
 
     if (!response.ok) {

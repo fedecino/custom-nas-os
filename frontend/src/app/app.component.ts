@@ -684,6 +684,9 @@ type ActiveWindow =
       >
         <div class="flex items-center gap-2">
           <span class="font-semibold text-slate-200">{{ uiSettings().nasName }}</span>
+          <span class="rounded bg-white/10 px-1.5 py-0.5 font-mono text-[10px] text-sky-300">
+            v{{ appVersion() }}
+          </span>
           <span>· Debian 13 (Trixie) Headless NAS</span>
         </div>
         <span>Porta 80 · Docker & Storage Ready</span>
@@ -921,6 +924,7 @@ export class AppComponent implements OnInit, OnDestroy {
   notificationsOpen = signal(false);
   ramModalOpen = signal(false);
   ramProcesses = signal<ProcessMemoryInfo[]>([]);
+  appVersion = signal('1.0.0');
   desktopSearch = '';
 
   uiSettings = signal<NasSettingsResponse['settings']>({
@@ -961,7 +965,10 @@ export class AppComponent implements OnInit, OnDestroy {
     this.refreshTimer = setInterval(() => this.refreshAll(), 6000);
 
     this.api.getSettings().subscribe({
-      next: (res) => this.uiSettings.set(res.settings),
+      next: (res) => {
+        this.uiSettings.set(res.settings);
+        if (res.version) this.appVersion.set(res.version);
+      },
       error: () => {},
     });
 

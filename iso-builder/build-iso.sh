@@ -84,6 +84,7 @@ echo "deb [arch=amd64] https://download.docker.com/linux/debian trixie stable" \
 cp -r "${REPO_ROOT}/backend/dist" config/includes.chroot/opt/nas-os/backend/
 cp "${REPO_ROOT}/backend/package.json" config/includes.chroot/opt/nas-os/backend/
 cp "${REPO_ROOT}/backend/package-lock.json" config/includes.chroot/opt/nas-os/backend/
+[ -f "${REPO_ROOT}/VERSION" ] && cp "${REPO_ROOT}/VERSION" config/includes.chroot/opt/nas-os/VERSION
 cp -r "${REPO_ROOT}/frontend/dist/nas-os-frontend" config/includes.chroot/opt/nas-os/frontend/dist/
 cp "${SCRIPT_DIR}/../system/nginx/nas-os.conf" config/includes.chroot/etc/nginx/sites-available/nas-os.conf
 cp "${SCRIPT_DIR}/../system/systemd/nas-os.service" config/includes.chroot/etc/systemd/system/nas-os.service

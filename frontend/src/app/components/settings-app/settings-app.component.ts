@@ -242,21 +242,26 @@ import {
         @if (updateStatus(); as st) {
           <div class="rounded-xl border border-white/10 bg-black/30 p-4 text-xs space-y-2.5">
             <div class="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                @if (!st.initialized) {
-                  <span class="text-amber-300">Sistema pronto per il primo aggiornamento</span>
-                } @else if (st.updateAvailable) {
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="rounded bg-white/10 px-2 py-0.5 font-mono text-slate-200">
+                  Installata: v{{ st.installedVersion }}
+                </span>
+                @if (st.updateAvailable && st.latestReleaseVersion) {
                   <span class="font-semibold text-amber-300">
-                    Disponibile aggiornamento ({{ st.behindCount }} novità · {{ st.currentCommit }} → {{ st.remoteCommit }})
+                    Disponibile aggiornamento (release {{ st.latestReleaseVersion }})
+                  </span>
+                } @else if (st.latestReleaseVersion) {
+                  <span class="font-semibold text-emerald-300">
+                    ✓ Sistema aggiornato all'ultima release
                   </span>
                 } @else {
-                  <span class="font-semibold text-emerald-300">
-                    ✓ Sistema aggiornato ({{ st.currentCommit }})
+                  <span class="text-slate-400">
+                    Nessuna release pubblicata trovata
                   </span>
                 }
               </div>
 
-              @if (!st.initialized || st.updateAvailable) {
+              @if (st.updateAvailable) {
                 <button
                   type="button"
                   (click)="showAuthPrompt.set(true)"
@@ -271,13 +276,13 @@ import {
             @if (st.latestReleaseDate || st.latestReleaseVersion) {
               <div class="flex flex-wrap items-center gap-2 text-[11px] text-slate-300">
                 @if (st.latestReleaseVersion) {
-                  <span class="rounded bg-white/10 px-2 py-0.5 font-mono text-sky-300">
-                    {{ st.latestReleaseVersion }}
+                  <span class="rounded bg-sky-500/15 px-2 py-0.5 font-mono text-sky-300">
+                    Release v{{ st.latestReleaseVersion }}
                   </span>
                 }
                 @if (st.latestReleaseDate) {
                   <span class="text-slate-400">
-                    Rilasciata il {{ formatReleaseDate(st.latestReleaseDate) }}
+                    del {{ formatReleaseDate(st.latestReleaseDate) }}
                   </span>
                 }
               </div>
@@ -290,45 +295,53 @@ import {
         }
 
         @if (showAuthPrompt()) {
-          <div class="rounded-xl border border-amber-500/30 bg-amber-950/20 p-4 space-y-3">
-            <h4 class="text-xs font-semibold text-amber-300">
-              Conferma identità amministratore (sudo) per avviare l'aggiornamento
-            </h4>
-            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <input
-                type="text"
-                [(ngModel)]="authUsername"
-                placeholder="Username (es. fede)"
-                class="rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-xs text-white focus:border-sky-400 focus:outline-none"
-              />
+          <div
+            class="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm"
+          >
+            <form
+              (ngSubmit)="startUpdate()"
+              class="w-full max-w-sm rounded-2xl border border-white/15 bg-slate-900 p-6 shadow-2xl space-y-4"
+            >
+              <div>
+                <h4 class="text-sm font-semibold text-white">
+                  Conferma Aggiornamento Sistema
+                </h4>
+                <p class="mt-1 text-xs text-slate-400">
+                  Inserisci la password amministratore per avviare l'aggiornamento.
+                </p>
+              </div>
+
               <input
                 type="password"
                 [(ngModel)]="authPassword"
+                name="authPassword"
+                autofocus
                 placeholder="Password amministratore"
-                class="rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-xs text-white focus:border-sky-400 focus:outline-none"
+                class="w-full rounded-xl border border-white/10 bg-black/40 px-3.5 py-2.5 text-xs text-white focus:border-sky-400 focus:outline-none"
               />
-            </div>
-            @if (updateError()) {
-              <div class="text-xs text-rose-300">{{ updateError() }}</div>
-            }
-            <div class="flex gap-2">
-              <button
-                type="button"
-                (click)="startUpdate()"
-                [disabled]="updatingSystem() || !authUsername.trim() || !authPassword"
-                class="rounded-xl bg-emerald-500 px-4 py-1.5 text-xs font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-50"
-              >
-                {{ updatingSystem() ? 'Aggiornamento in corso...' : 'Conferma e Aggiorna' }}
-              </button>
-              <button
-                type="button"
-                (click)="showAuthPrompt.set(false)"
-                [disabled]="updatingSystem()"
-                class="rounded-xl border border-white/10 px-3 py-1.5 text-xs text-slate-300"
-              >
-                Annulla
-              </button>
-            </div>
+
+              @if (updateError()) {
+                <div class="text-xs text-rose-300">{{ updateError() }}</div>
+              }
+
+              <div class="flex justify-end gap-2">
+                <button
+                  type="button"
+                  (click)="showAuthPrompt.set(false)"
+                  [disabled]="updatingSystem()"
+                  class="rounded-xl border border-white/10 px-4 py-2 text-xs text-slate-300 hover:bg-white/5"
+                >
+                  Annulla
+                </button>
+                <button
+                  type="submit"
+                  [disabled]="updatingSystem() || !authPassword"
+                  class="rounded-xl bg-emerald-500 px-4 py-2 text-xs font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-50"
+                >
+                  Conferma e Aggiorna
+                </button>
+              </div>
+            </form>
           </div>
         }
 
@@ -381,7 +394,6 @@ export class SettingsAppComponent implements OnInit {
   updateDone = signal(false);
   updateStatus = signal<SystemUpdateStatus | null>(null);
   showAuthPrompt = signal(false);
-  authUsername = '';
   authPassword = '';
   updateError = signal<string | null>(null);
 
@@ -589,16 +601,14 @@ export class SettingsAppComponent implements OnInit {
     this.updateError.set(null);
 
     try {
-      await this.api.applySystemUpdateSse(
-        this.authUsername.trim(),
-        this.authPassword,
-        () => {}
-      );
-      this.authPassword = '';
+      const pwd = this.authPassword;
       this.showAuthPrompt.set(false);
+      await this.api.applySystemUpdateSse(pwd, () => {});
+      this.authPassword = '';
       this.updateDone.set(true);
       setTimeout(() => window.location.reload(), 3000);
     } catch (err) {
+      this.showAuthPrompt.set(true);
       this.updateError.set(
         err instanceof Error ? err.message : 'Aggiornamento fallito'
       );

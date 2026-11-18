@@ -41,6 +41,7 @@ rm -rf "${APP_DIR}/backend/dist.new" "${APP_DIR}/frontend/dist/nas-os-frontend.n
 cp -r "${SRC_DIR}/backend/dist" "${APP_DIR}/backend/dist.new"
 cp "${SRC_DIR}/backend/package.json" "${APP_DIR}/backend/package.json"
 cp "${SRC_DIR}/backend/package-lock.json" "${APP_DIR}/backend/package-lock.json"
+[ -f "${SRC_DIR}/VERSION" ] && cp "${SRC_DIR}/VERSION" "${APP_DIR}/VERSION"
 cp -r "${SRC_DIR}/frontend/dist/nas-os-frontend" "${APP_DIR}/frontend/dist/nas-os-frontend.new"
 
 # Install production deps in backend

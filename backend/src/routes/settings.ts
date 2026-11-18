@@ -81,9 +81,52 @@ function sanitizeSettingsForClient(settings: NasUiSettings) {
   };
 }
 
+async function getInstalledVersion(): Promise<string> {
+  const candidates = [
+    '/opt/nas-os/VERSION',
+    '/opt/nas-os/src/VERSION',
+    path.resolve(process.cwd(), '../VERSION'),
+  ];
+  for (const file of candidates) {
+    try {
+      const content = (await fs.readFile(file, 'utf-8')).trim().replace(/^v/, '');
+      if (content) return content;
+    } catch {
+      // try next
+    }
+  }
+  try {
+    const { stdout } = await execFileAsync(
+      'git',
+      ['-C', '/opt/nas-os/src', 'describe', '--tags', '--abbrev=0'],
+      { timeout: 3000 }
+    );
+    const tag = stdout.trim().replace(/^v/, '');
+    if (tag) return tag;
+  } catch {
+    // ignore
+  }
+  return '1.0.0';
+}
+
+function compareSemver(a: string, b: string): number {
+  const pa = a.replace(/^v/, '').split('-')[0].split('.').map((n) => Number(n) || 0);
+  const pb = b.replace(/^v/, '').split('-')[0].split('.').map((n) => Number(n) || 0);
+  for (let i = 0; i < 3; i++) {
+    const da = pa[i] ?? 0;
+    const db = pb[i] ?? 0;
+    if (da < db) return -1;
+    if (da > db) return 1;
+  }
+  return 0;
+}
+
 router.get('/', async (_req: Request, res: Response) => {
   try {
-    const settings = await readFullSettings();
+    const [settings, version] = await Promise.all([
+      readFullSettings(),
+      getInstalledVersion(),
+    ]);
     const interfaces = os.networkInterfaces();
     const netSummary = Object.entries(interfaces)
       .filter(([name]) => name !== 'lo')
@@ -96,6 +139,7 @@ router.get('/', async (_req: Request, res: Response) => {
 
     res.json({
       hostname: os.hostname(),
+      version,
       settings: sanitizeSettingsForClient(settings),
       network: netSummary,
     });
@@ -209,9 +253,11 @@ async function verifySudoUserPassword(
 }
 
 router.get('/updates', async (_req: Request, res: Response) => {
-  const settings = await readFullSettings();
+  const [settings, installedVersion] = await Promise.all([
+    readFullSettings(),
+    getInstalledVersion(),
+  ]);
 
-  // Fetch latest GitHub Release metadata (if any)
   let latestReleaseVersion: string | null = null;
   let latestReleaseDate: string | null = null;
   let latestReleaseNotes: string | null = null;
@@ -233,60 +279,56 @@ router.get('/updates', async (_req: Request, res: Response) => {
           body?: string;
           name?: string;
         };
-        latestReleaseVersion = gh.tag_name ?? gh.name ?? null;
+        latestReleaseVersion = (gh.tag_name ?? gh.name ?? '').replace(/^v/, '') || null;
         latestReleaseDate = gh.published_at ?? null;
         latestReleaseNotes = gh.body?.trim() || gh.name || null;
       }
     }
   } catch {
-    // GitHub API optional fallback to git commit info
+    // GitHub API unavailable
   }
 
-  try {
-    await fs.access(path.join(SRC_DIR, '.git'));
-  } catch {
-    res.json({
-      initialized: false,
-      updateAvailable: true,
-      behindCount: 0,
-      currentCommit: null,
-      remoteCommit: null,
-      latestReleaseVersion,
-      latestReleaseDate,
-      latestReleaseNotes:
-        latestReleaseNotes ?? 'Repository non ancora inizializzato su questo NAS',
-    });
-    return;
-  }
+  const updateAvailable =
+    latestReleaseVersion !== null &&
+    compareSemver(installedVersion, latestReleaseVersion) < 0;
 
-  try {
-    await execFileAsync('git', ['-C', SRC_DIR, 'fetch', '--all', '--prune'], {
-      timeout: 15000,
-    });
-    const [localRes, remoteRes, countRes, msgRes, dateRes] = await Promise.all([
-      execFileAsync('git', ['-C', SRC_DIR, 'rev-parse', '--short', 'HEAD']),
-      execFileAsync('git', ['-C', SRC_DIR, 'rev-parse', '--short', '@{u}']),
-      execFileAsync('git', ['-C', SRC_DIR, 'rev-list', '--count', 'HEAD..@{u}']),
-      execFileAsync('git', ['-C', SRC_DIR, 'log', '-1', '--pretty=%s', '@{u}']),
-      execFileAsync('git', ['-C', SRC_DIR, 'log', '-1', '--pretty=%cI', '@{u}']),
-    ]);
-
-    const behindCount = Number(countRes.stdout.trim()) || 0;
-    res.json({
-      initialized: true,
-      currentCommit: localRes.stdout.trim(),
-      remoteCommit: remoteRes.stdout.trim(),
-      behindCount,
-      updateAvailable: behindCount > 0,
-      latestReleaseVersion: latestReleaseVersion ?? remoteRes.stdout.trim(),
-      latestReleaseDate: latestReleaseDate ?? dateRes.stdout.trim(),
-      latestReleaseNotes: latestReleaseNotes ?? msgRes.stdout.trim(),
-    });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Controllo aggiornamenti fallito';
-    res.status(500).json({ error: message });
-  }
+  res.json({
+    installedVersion,
+    latestReleaseVersion,
+    latestReleaseDate,
+    latestReleaseNotes,
+    updateAvailable,
+  });
 });
+
+async function verifyAnySudoPassword(
+  password: string,
+  preferredUsername?: string
+): Promise<boolean> {
+  if (!password) return false;
+
+  if (preferredUsername) {
+    return verifySudoUserPassword(preferredUsername, password);
+  }
+
+  try {
+    const groupRaw = await fs.readFile('/etc/group', 'utf-8');
+    const sudoLine = groupRaw.split('\n').find((l) => l.startsWith('sudo:'));
+    const members = (sudoLine?.split(':')[3]?.split(',') ?? [])
+      .map((m) => m.trim())
+      .filter(Boolean);
+
+    const candidates = Array.from(new Set([...members, 'root']));
+    for (const user of candidates) {
+      if (await verifySudoUserPassword(user, password)) {
+        return true;
+      }
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
 
 router.post('/updates/apply', async (req: Request, res: Response) => {
   const { username, password, repoUrl } = req.body as {
@@ -295,14 +337,14 @@ router.post('/updates/apply', async (req: Request, res: Response) => {
     repoUrl?: string;
   };
 
-  const valid = await verifySudoUserPassword(
-    String(username ?? '').trim(),
-    String(password ?? '')
+  const valid = await verifyAnySudoPassword(
+    String(password ?? ''),
+    username ? String(username).trim() : undefined
   );
 
   if (!valid) {
     res.status(401).json({
-      error: 'Credenziali non valide o utente non autorizzato (richiesti privilegi sudo)',
+      error: 'Password amministratore non valida',
     });
     return;
   }
