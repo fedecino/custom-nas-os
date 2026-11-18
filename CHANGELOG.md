@@ -1,3 +1,9 @@
+## [1.1.0](https://github.com/fedecino/custom-nas-os/compare/v1.0.0...v1.1.0) (2026-11-18)
+
+### Features
+
+* nuova gestione delle versioni ([8fec0c3](https://github.com/fedecino/custom-nas-os/commit/8fec0c3a211c0731a5be818e93637a94d25cd7d5))
+
 ## 1.0.0 (2026-11-18)
 
 ### Features
