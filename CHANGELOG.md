@@ -1,3 +1,13 @@
+## [1.5.0](https://github.com/fedecino/custom-nas-os/compare/v1.4.1...v1.5.0) (2026-11-18)
+
+### Features
+
+* modifica layout impostazione / implementazione proxy con ngnix per le applicazioni installate ([1ce0354](https://github.com/fedecino/custom-nas-os/commit/1ce03542799a2cb6bb8a7df21ae95f7b793ef04a))
+
+### Bug Fixes
+
+* modifiche layout e gestione condivisioni ([56a1ae8](https://github.com/fedecino/custom-nas-os/commit/56a1ae8cae40f72efb0da0f167381801aedf3ec7))
+
 ## [1.4.1](https://github.com/fedecino/custom-nas-os/compare/v1.4.0...v1.4.1) (2026-11-18)
 
 ### Bug Fixes
