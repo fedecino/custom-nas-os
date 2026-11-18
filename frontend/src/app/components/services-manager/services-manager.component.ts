@@ -7,6 +7,7 @@ import {
   ListeningPort,
   ManagedSystemService,
   ProxyRoute,
+  SslStatusResponse,
 } from '../../services/api.service';
 
 @Component({
@@ -139,6 +140,103 @@ import {
                 }
               </tbody>
             </table>
+          </div>
+        }
+      </div>
+
+      <!-- HTTPS / SSL Certificate (Nginx) -->
+      <div class="rounded-2xl border border-white/10 bg-slate-900/60 p-5 space-y-4">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div class="flex items-center gap-2.5">
+              <h3 class="text-sm font-semibold text-white">Certificato SSL / HTTPS (Nginx)</h3>
+              <span
+                class="rounded-full px-2.5 py-0.5 text-[10px] font-semibold uppercase"
+                [ngClass]="
+                  sslStatus()?.config?.enabled
+                    ? 'bg-emerald-500/20 text-emerald-300'
+                    : 'bg-slate-700 text-slate-300'
+                "
+              >
+                {{ sslStatus()?.config?.enabled ? 'HTTPS Attivo (:443)' : 'Solo HTTP (:80)' }}
+              </span>
+            </div>
+            <p class="mt-0.5 text-[11px] text-slate-400">
+              Abilita HTTPS su porta 443 con validazione automatica <span class="font-mono text-sky-300">nginx -t</span> e rollback di sicurezza, preservato anche dopo gli aggiornamenti.
+            </p>
+          </div>
+
+          <div class="flex flex-wrap gap-2">
+            <button
+              type="button"
+              (click)="generateSelfSigned()"
+              [disabled]="sslBusy()"
+              class="rounded-xl bg-[#00ff88] px-4 py-2 text-xs font-semibold text-[#062417] hover:brightness-110 disabled:opacity-50"
+            >
+              {{ sslBusy() ? 'Configurazione...' : '🔒 Genera Self-Signed & Attiva HTTPS' }}
+            </button>
+            @if (sslStatus()?.config?.enabled) {
+              <button
+                type="button"
+                (click)="disableSsl()"
+                [disabled]="sslBusy()"
+                class="rounded-xl bg-rose-500/20 px-3.5 py-2 text-xs font-semibold text-rose-300 hover:bg-rose-500/30 disabled:opacity-50"
+              >
+                Disattiva HTTPS
+              </button>
+            }
+          </div>
+        </div>
+
+        @if (sslStatus(); as ssl) {
+          <div class="rounded-xl border border-white/10 bg-black/25 p-3.5 text-xs space-y-2">
+            <div class="flex flex-wrap items-center justify-between gap-2 text-slate-300">
+              <span>
+                Modalità: <strong class="text-white">{{ ssl.config.mode === 'custom' ? 'Certificato Personalizzato' : 'Self-Signed (LAN)' }}</strong>
+              </span>
+              @if (ssl.certExpires) {
+                <span class="font-mono text-[11px] text-slate-400">
+                  Scadenza: {{ ssl.certExpires }}
+                </span>
+              }
+            </div>
+
+            <label class="flex items-center gap-2 text-xs text-slate-300">
+              <input type="checkbox" [(ngModel)]="sslForceHttps" class="accent-[#38bdf8]" />
+              <span>Reindirizza automaticamente HTTP (80) → HTTPS (443)</span>
+            </label>
+
+            <div class="grid grid-cols-1 gap-2.5 pt-2 sm:grid-cols-2">
+              <div>
+                <label class="block text-[11px] text-slate-400">Percorso Certificato (.crt / fullchain.pem)</label>
+                <input
+                  type="text"
+                  [(ngModel)]="sslCertPath"
+                  placeholder="/etc/letsencrypt/live/.../fullchain.pem"
+                  class="mt-1 w-full rounded-xl border border-white/10 bg-black/40 px-3 py-1.5 font-mono text-xs text-white focus:border-[#38bdf8] focus:outline-none"
+                />
+              </div>
+              <div>
+                <label class="block text-[11px] text-slate-400">Percorso Chiave Privata (.key / privkey.pem)</label>
+                <input
+                  type="text"
+                  [(ngModel)]="sslKeyPath"
+                  placeholder="/etc/letsencrypt/live/.../privkey.pem"
+                  class="mt-1 w-full rounded-xl border border-white/10 bg-black/40 px-3 py-1.5 font-mono text-xs text-white focus:border-[#38bdf8] focus:outline-none"
+                />
+              </div>
+            </div>
+
+            <div class="flex justify-end pt-1">
+              <button
+                type="button"
+                (click)="applyCustomSsl()"
+                [disabled]="sslBusy()"
+                class="rounded-xl border border-[#38bdf8]/40 bg-[#38bdf8]/15 px-4 py-1.5 text-xs font-semibold text-[#38bdf8] hover:bg-[#38bdf8]/25 disabled:opacity-50"
+              >
+                Applica Configurazione SSL
+              </button>
+            </div>
           </div>
         }
       </div>
@@ -394,6 +492,11 @@ export class ServicesManagerComponent implements OnInit {
   services = signal<ManagedSystemService[]>([]);
   firewall = signal<FirewallStatusResponse | null>(null);
   proxyRoutes = signal<ProxyRoute[]>([]);
+  sslStatus = signal<SslStatusResponse | null>(null);
+  sslBusy = signal(false);
+  sslForceHttps = false;
+  sslCertPath = '';
+  sslKeyPath = '';
   feedback = signal<string | null>(null);
   feedbackOk = signal(true);
   portFilter = '';
@@ -430,6 +533,75 @@ export class ServicesManagerComponent implements OnInit {
     this.api.getProxyRoutes().subscribe({
       next: (res) => this.proxyRoutes.set(res.routes),
       error: () => {},
+    });
+
+    this.api.getSslConfig().subscribe({
+      next: (res) => {
+        this.sslStatus.set(res);
+        this.sslForceHttps = res.config.forceHttps;
+        this.sslCertPath = res.config.certPath;
+        this.sslKeyPath = res.config.keyPath;
+      },
+      error: () => {},
+    });
+  }
+
+  generateSelfSigned(): void {
+    this.sslBusy.set(true);
+    this.api.generateSelfSignedSsl(this.sslForceHttps).subscribe({
+      next: () => {
+        this.sslBusy.set(false);
+        this.feedbackOk.set(true);
+        this.feedback.set('Certificato SSL Self-Signed generato e HTTPS (:443) attivato!');
+        this.load();
+      },
+      error: (err) => {
+        this.sslBusy.set(false);
+        this.feedbackOk.set(false);
+        this.feedback.set(err?.error?.error ?? 'Errore generazione certificato SSL');
+      },
+    });
+  }
+
+  applyCustomSsl(): void {
+    this.sslBusy.set(true);
+    this.api
+      .saveSslConfig({
+        enabled: true,
+        forceHttps: this.sslForceHttps,
+        mode: 'custom',
+        certPath: this.sslCertPath.trim(),
+        keyPath: this.sslKeyPath.trim(),
+      })
+      .subscribe({
+        next: () => {
+          this.sslBusy.set(false);
+          this.feedbackOk.set(true);
+          this.feedback.set('Configurazione SSL applicata con successo!');
+          this.load();
+        },
+        error: (err) => {
+          this.sslBusy.set(false);
+          this.feedbackOk.set(false);
+          this.feedback.set(err?.error?.error ?? 'Errore configurazione SSL (eseguito rollback)');
+        },
+      });
+  }
+
+  disableSsl(): void {
+    this.sslBusy.set(true);
+    this.api.saveSslConfig({ enabled: false, forceHttps: false }).subscribe({
+      next: () => {
+        this.sslBusy.set(false);
+        this.feedbackOk.set(true);
+        this.feedback.set('HTTPS disattivato: Nginx attivo su HTTP (:80).');
+        this.load();
+      },
+      error: (err) => {
+        this.sslBusy.set(false);
+        this.feedbackOk.set(false);
+        this.feedback.set(err?.error?.error ?? 'Errore disattivazione HTTPS');
+      },
     });
   }
 

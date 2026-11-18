@@ -19,6 +19,7 @@ if [ -d /opt/nas-os/backend ] && [ ! -d /opt/nas-os/backend/node_modules ]; then
 fi
 
 echo "[NAS-OS Hook] Configuring Nginx reverse proxy..."
+mkdir -p /etc/nginx/conf.d/siloos-ssl /etc/nginx/conf.d/siloos-routes
 rm -f /etc/nginx/sites-enabled/default
 if [ -f /etc/nginx/sites-available/nas-os.conf ]; then
   ln -sf /etc/nginx/sites-available/nas-os.conf /etc/nginx/sites-enabled/nas-os.conf

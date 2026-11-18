@@ -85,6 +85,7 @@ chmod +x /usr/local/bin/nas-os-banner.sh /usr/local/sbin/nas-os-install /usr/loc
 
 echo "==> [6/6] Riavvio servizi..."
 set_status "running:Riavvio servizi SiloOs..."
+mkdir -p /etc/nginx/conf.d/siloos-ssl /etc/nginx/conf.d/siloos-routes
 udevadm control --reload-rules || true
 systemctl daemon-reload
 systemctl reload nginx || systemctl restart nginx

@@ -1122,4 +1122,220 @@ router.put('/network/:iface', requireAdmin, async (req: Request, res: Response) 
   }
 });
 
+// ---------------------------------------------------------------------------
+// Nginx HTTPS / SSL Certificate Management
+// ---------------------------------------------------------------------------
+
+export interface SslConfig {
+  enabled: boolean;
+  forceHttps: boolean;
+  mode: 'self-signed' | 'custom';
+  certPath: string;
+  keyPath: string;
+}
+
+const SSL_DIR = path.join(DATA_DIR, '.nas-os', 'ssl');
+const SSL_CONFIG_FILE = path.join(SSL_DIR, 'config.json');
+const DEFAULT_SSL_CERT = path.join(SSL_DIR, 'siloos.crt');
+const DEFAULT_SSL_KEY = path.join(SSL_DIR, 'siloos.key');
+const NGINX_SSL_DIR = '/etc/nginx/conf.d/siloos-ssl';
+const NGINX_SSL_CONF = path.join(NGINX_SSL_DIR, 'ssl.conf');
+
+async function readSslConfig(): Promise<SslConfig> {
+  try {
+    const raw = await fs.readFile(SSL_CONFIG_FILE, 'utf-8');
+    const parsed = JSON.parse(raw) as Partial<SslConfig>;
+    return {
+      enabled: Boolean(parsed.enabled),
+      forceHttps: Boolean(parsed.forceHttps),
+      mode: parsed.mode === 'custom' ? 'custom' : 'self-signed',
+      certPath: parsed.certPath || DEFAULT_SSL_CERT,
+      keyPath: parsed.keyPath || DEFAULT_SSL_KEY,
+    };
+  } catch {
+    return {
+      enabled: false,
+      forceHttps: false,
+      mode: 'self-signed',
+      certPath: DEFAULT_SSL_CERT,
+      keyPath: DEFAULT_SSL_KEY,
+    };
+  }
+}
+
+async function applyNginxSslConfig(cfg: SslConfig): Promise<void> {
+  await fs.mkdir(NGINX_SSL_DIR, { recursive: true });
+  let prevConf: string | null = null;
+  try {
+    prevConf = await fs.readFile(NGINX_SSL_CONF, 'utf-8');
+  } catch {
+    prevConf = null;
+  }
+
+  try {
+    if (cfg.enabled) {
+      await fs.access(cfg.certPath);
+      await fs.access(cfg.keyPath);
+
+      const lines = [
+        '# Managed by SiloOs SSL settings',
+        'listen 443 ssl http2 default_server;',
+        'listen [::]:443 ssl http2 default_server;',
+        `ssl_certificate ${cfg.certPath};`,
+        `ssl_certificate_key ${cfg.keyPath};`,
+        'ssl_protocols TLSv1.2 TLSv1.3;',
+        'ssl_ciphers HIGH:!aNULL:!MD5;',
+      ];
+      if (cfg.forceHttps) {
+        lines.push('if ($scheme = http) { return 301 https://$host$request_uri; }');
+      }
+      await fs.writeFile(NGINX_SSL_CONF, lines.join('\n') + '\n', 'utf-8');
+      await execFileAsync('ufw', ['allow', '443/tcp'], { timeout: 5000 }).catch(() => {});
+    } else {
+      await fs.rm(NGINX_SSL_CONF, { force: true });
+    }
+
+    await execFileAsync('nginx', ['-t'], { timeout: 5000 });
+    await execFileAsync('systemctl', ['reload', 'nginx'], { timeout: 5000 }).catch(() =>
+      execFileAsync('systemctl', ['restart', 'nginx'], { timeout: 5000 })
+    );
+  } catch (err) {
+    // Roll back nginx ssl.conf so a bad cert never locks out the Web UI
+    if (prevConf !== null) {
+      await fs.writeFile(NGINX_SSL_CONF, prevConf, 'utf-8').catch(() => {});
+    } else {
+      await fs.rm(NGINX_SSL_CONF, { force: true }).catch(() => {});
+    }
+    throw err;
+  }
+}
+
+router.get('/ssl', requireAdmin, async (_req: Request, res: Response) => {
+  try {
+    const cfg = await readSslConfig();
+    let hasCertFiles = false;
+    let certSubject: string | null = null;
+    let certExpires: string | null = null;
+    try {
+      await Promise.all([fs.access(cfg.certPath), fs.access(cfg.keyPath)]);
+      hasCertFiles = true;
+      const { stdout } = await execFileAsync(
+        'openssl',
+        ['x509', '-in', cfg.certPath, '-noout', '-subject', '-enddate'],
+        { timeout: 3000 }
+      );
+      for (const line of stdout.split('\n')) {
+        if (line.startsWith('subject=')) certSubject = line.slice(8).trim();
+        if (line.startsWith('notAfter=')) certExpires = line.slice(9).trim();
+      }
+    } catch {
+      // ignore
+    }
+    res.json({ config: cfg, hasCertFiles, certSubject, certExpires });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Errore lettura stato SSL';
+    res.status(500).json({ error: message });
+  }
+});
+
+router.post('/ssl/self-signed', requireAdmin, async (req: Request, res: Response) => {
+  const { forceHttps } = (req.body ?? {}) as { forceHttps?: boolean };
+  try {
+    await fs.mkdir(SSL_DIR, { recursive: true });
+    const hostname = os.hostname() || 'siloos';
+    const sanEntries = new Set<string>([
+      `DNS:${hostname}`,
+      `DNS:${hostname}.local`,
+      'DNS:siloos.local',
+      'DNS:localhost',
+      'IP:127.0.0.1',
+    ]);
+
+    for (const addrs of Object.values(os.networkInterfaces())) {
+      for (const a of addrs ?? []) {
+        if (!a.internal && a.family === 'IPv4') {
+          sanEntries.add(`IP:${a.address}`);
+        }
+      }
+    }
+
+    await execFileAsync(
+      'openssl',
+      [
+        'req',
+        '-x509',
+        '-nodes',
+        '-newkey',
+        'rsa:2048',
+        '-days',
+        '3650',
+        '-keyout',
+        DEFAULT_SSL_KEY,
+        '-out',
+        DEFAULT_SSL_CERT,
+        '-subj',
+        `/CN=${hostname}`,
+        '-addext',
+        `subjectAltName=${Array.from(sanEntries).join(',')}`,
+      ],
+      { timeout: 10000 }
+    );
+    await fs.chmod(DEFAULT_SSL_KEY, 0o600).catch(() => {});
+
+    const nextCfg: SslConfig = {
+      enabled: true,
+      forceHttps: Boolean(forceHttps),
+      mode: 'self-signed',
+      certPath: DEFAULT_SSL_CERT,
+      keyPath: DEFAULT_SSL_KEY,
+    };
+    await applyNginxSslConfig(nextCfg);
+    await fs.writeFile(SSL_CONFIG_FILE, JSON.stringify(nextCfg, null, 2), 'utf-8');
+
+    res.json({ success: true, config: nextCfg });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Errore generazione certificato SSL';
+    res.status(500).json({ error: message });
+  }
+});
+
+router.put('/ssl', requireAdmin, async (req: Request, res: Response) => {
+  const body = req.body as Partial<SslConfig> & {
+    certPem?: string;
+    keyPem?: string;
+  };
+
+  try {
+    const current = await readSslConfig();
+    await fs.mkdir(SSL_DIR, { recursive: true });
+
+    let certPath = body.certPath?.trim() || current.certPath;
+    let keyPath = body.keyPath?.trim() || current.keyPath;
+
+    if (body.certPem?.trim() && body.keyPem?.trim()) {
+      const customCert = path.join(SSL_DIR, 'custom.crt');
+      const customKey = path.join(SSL_DIR, 'custom.key');
+      await fs.writeFile(customCert, body.certPem.trim() + '\n', 'utf-8');
+      await fs.writeFile(customKey, body.keyPem.trim() + '\n', { mode: 0o600, encoding: 'utf-8' });
+      certPath = customCert;
+      keyPath = customKey;
+    }
+
+    const nextCfg: SslConfig = {
+      enabled: body.enabled ?? current.enabled,
+      forceHttps: body.forceHttps ?? current.forceHttps,
+      mode: body.mode ?? (certPath !== DEFAULT_SSL_CERT ? 'custom' : current.mode),
+      certPath,
+      keyPath,
+    };
+
+    await applyNginxSslConfig(nextCfg);
+    await fs.writeFile(SSL_CONFIG_FILE, JSON.stringify(nextCfg, null, 2), 'utf-8');
+    res.json({ success: true, config: nextCfg });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Errore configurazione SSL Nginx';
+    res.status(400).json({ error: message });
+  }
+});
+
 export default router;

@@ -232,6 +232,21 @@ export interface ProxyRoute {
   stripPrefix: boolean;
 }
 
+export interface SslConfig {
+  enabled: boolean;
+  forceHttps: boolean;
+  mode: 'self-signed' | 'custom';
+  certPath: string;
+  keyPath: string;
+}
+
+export interface SslStatusResponse {
+  config: SslConfig;
+  hasCertFiles: boolean;
+  certSubject: string | null;
+  certExpires: string | null;
+}
+
 export interface NetworkInterfaceConfig {
   name: string;
   type: 'ethernet' | 'wifi';
@@ -663,6 +678,29 @@ export class ApiService {
 
   getNetworkInterfaces(): Observable<{ interfaces: NetworkInterfaceConfig[] }> {
     return this.http.get<{ interfaces: NetworkInterfaceConfig[] }>('/api/settings/network');
+  }
+
+  getSslConfig(): Observable<SslStatusResponse> {
+    return this.http.get<SslStatusResponse>('/api/settings/ssl');
+  }
+
+  generateSelfSignedSsl(forceHttps: boolean): Observable<{ success: boolean; config: SslConfig }> {
+    return this.http.post<{ success: boolean; config: SslConfig }>(
+      '/api/settings/ssl/self-signed',
+      { forceHttps }
+    );
+  }
+
+  saveSslConfig(payload: {
+    enabled?: boolean;
+    forceHttps?: boolean;
+    mode?: 'self-signed' | 'custom';
+    certPath?: string;
+    keyPath?: string;
+    certPem?: string;
+    keyPem?: string;
+  }): Observable<{ success: boolean; config: SslConfig }> {
+    return this.http.put<{ success: boolean; config: SslConfig }>('/api/settings/ssl', payload);
   }
 
   saveNetworkInterface(
