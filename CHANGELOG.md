@@ -1,3 +1,9 @@
+## [1.4.0](https://github.com/fedecino/custom-nas-os/compare/v1.3.0...v1.4.0) (2026-11-18)
+
+### Features
+
+* aggiunta gestione dei docker ([6848b09](https://github.com/fedecino/custom-nas-os/commit/6848b0950e3fbcc900c3660e12126899fefa5d80))
+
 ## [1.3.0](https://github.com/fedecino/custom-nas-os/compare/v1.2.0...v1.3.0) (2026-11-18)
 
 ### Features
