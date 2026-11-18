@@ -1,3 +1,9 @@
+## [1.6.0](https://github.com/fedecino/custom-nas-os/compare/v1.5.0...v1.6.0) (2026-11-18)
+
+### Features
+
+* implementato la scelta per le impostazioni della scheda di rete ([4b6b076](https://github.com/fedecino/custom-nas-os/commit/4b6b076ca2b4464696589c06cc9b7f8633df7c35))
+
 ## [1.5.0](https://github.com/fedecino/custom-nas-os/compare/v1.4.1...v1.5.0) (2026-11-18)
 
 ### Features
