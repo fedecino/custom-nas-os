@@ -1,6 +1,9 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import { Router, Request, Response } from 'express';
 import { readFullSettings } from './settings.js';
 import {
+  DATA_DIR,
   deployStack,
   listStacks,
   runStackAction,
@@ -9,6 +12,33 @@ import { inspectImage, searchRepositories } from '../services/registry.js';
 
 const router = Router();
 const LOCAL_PORT = Number(process.env.PORT ?? 3000);
+const AI_CHATS_FILE = path.join(DATA_DIR, '.nas-os', 'ai-chats.json');
+
+interface StoredAiChat {
+  id: string;
+  title: string;
+  updatedAt: string;
+  messages: Array<{
+    role: 'user' | 'assistant';
+    content: string;
+    toolCalls?: Array<{ name: string; ok: boolean }>;
+  }>;
+}
+
+async function readChats(): Promise<StoredAiChat[]> {
+  try {
+    const raw = await fs.readFile(AI_CHATS_FILE, 'utf-8');
+    const parsed = JSON.parse(raw) as StoredAiChat[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+async function saveChats(chats: StoredAiChat[]): Promise<void> {
+  await fs.mkdir(path.dirname(AI_CHATS_FILE), { recursive: true });
+  await fs.writeFile(AI_CHATS_FILE, JSON.stringify(chats.slice(0, 30), null, 2), 'utf-8');
+}
 
 interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
@@ -245,7 +275,8 @@ async function callChatCompletion(
   apiKey: string,
   model: string,
   messages: ChatMessage[],
-  useTools: boolean
+  useTools: boolean,
+  signal?: AbortSignal
 ) {
   const endpoint = `${baseUrl.replace(/\/+$/, '')}/chat/completions`;
   const headers: Record<string, string> = {
@@ -269,6 +300,7 @@ async function callChatCompletion(
     method: 'POST',
     headers,
     body: JSON.stringify(payload),
+    signal,
   });
 
   if (!res.ok) {
@@ -317,7 +349,26 @@ router.post('/test', async (req: Request, res: Response) => {
   }
 });
 
+router.get('/history', async (_req: Request, res: Response) => {
+  const chats = await readChats();
+  res.json({ chats });
+});
+
+router.delete('/history/:id', async (req: Request, res: Response) => {
+  const id = String(req.params.id ?? '');
+  const chats = await readChats();
+  await saveChats(chats.filter((c) => c.id !== id));
+  res.json({ success: true });
+});
+
 router.post('/chat', async (req: Request, res: Response) => {
+  const abortController = new AbortController();
+  req.on('close', () => {
+    if (!res.writableEnded) {
+      abortController.abort();
+    }
+  });
+
   try {
     const { ai, nasName } = await readFullSettings();
     if (!ai.enabled) {
@@ -333,15 +384,53 @@ router.post('/chat', async (req: Request, res: Response) => {
       return;
     }
 
-    const userMessages = (req.body as { messages?: ChatMessage[] }).messages ?? [];
+    const body = req.body as {
+      chatId?: string;
+      messages?: Array<{
+        role: 'user' | 'assistant';
+        content: string;
+        toolCalls?: Array<{ name: string; ok: boolean }>;
+      }>;
+    };
+
+    const rawUiMessages = body.messages ?? [];
+    const userMessages: ChatMessage[] = rawUiMessages.map((m) => ({
+      role: m.role,
+      content: m.content,
+    }));
+
     const systemPrompt: ChatMessage = {
       role: 'system',
-      content: `Sei l'assistente AI integrato di "${nasName}" (sistema operativo NAS basato su Debian 13). Puoi controllare e gestire il NAS usando gli strumenti (tools) disponibili: stato CPU/RAM/Rete/Dischi, container Docker e App Store, condivisioni SMB/NFS/FTP/SSH e utenti. Rispondi in modo chiaro, conciso e nella lingua dell'utente.`,
+      content: `Sei l'assistente AI integrato di "${nasName}" (sistema operativo NAS). Puoi controllare e gestire il NAS usando gli strumenti (tools) disponibili: stato CPU/RAM/Rete/Dischi, container Docker e App Store, condivisioni SMB/NFS/FTP/SSH e utenti. Rispondi in modo chiaro, conciso e nella lingua dell'utente.`,
     };
 
     const conversation: ChatMessage[] = [systemPrompt, ...userMessages.slice(-16)];
     const executedTools: Array<{ name: string; ok: boolean }> = [];
     let useTools = true;
+
+    const persistConversation = async (replyText: string) => {
+      const chatId =
+        body.chatId || `chat-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      const firstUserMsg = rawUiMessages.find((m) => m.role === 'user')?.content ?? 'Nuova chat';
+      const title =
+        firstUserMsg.length > 46 ? `${firstUserMsg.slice(0, 46)}...` : firstUserMsg;
+
+      const updatedMessages: StoredAiChat['messages'] = [
+        ...rawUiMessages,
+        { role: 'assistant', content: replyText, toolCalls: executedTools },
+      ];
+
+      const chats = await readChats();
+      const filtered = chats.filter((c) => c.id !== chatId);
+      const nextChat: StoredAiChat = {
+        id: chatId,
+        title,
+        updatedAt: new Date().toISOString(),
+        messages: updatedMessages,
+      };
+      await saveChats([nextChat, ...filtered]);
+      return chatId;
+    };
 
     for (let step = 0; step < 6; step++) {
       let data;
@@ -351,9 +440,11 @@ router.post('/chat', async (req: Request, res: Response) => {
           ai.apiKey,
           ai.model,
           conversation,
-          useTools
+          useTools,
+          abortController.signal
         );
       } catch (err) {
+        if (abortController.signal.aborted) return;
         // Fallback if local model doesn't support tool calling
         if (useTools && step === 0) {
           useTools = false;
@@ -362,7 +453,8 @@ router.post('/chat', async (req: Request, res: Response) => {
             ai.apiKey,
             ai.model,
             conversation,
-            false
+            false,
+            abortController.signal
           );
         } else {
           throw err;
@@ -377,14 +469,18 @@ router.post('/chat', async (req: Request, res: Response) => {
       conversation.push(assistantMsg);
 
       if (!assistantMsg.tool_calls || assistantMsg.tool_calls.length === 0) {
+        const reply = assistantMsg.content ?? '';
+        const chatId = await persistConversation(reply);
         res.json({
-          reply: assistantMsg.content ?? '',
+          chatId,
+          reply,
           toolCalls: executedTools,
         });
         return;
       }
 
       for (const tc of assistantMsg.tool_calls) {
+        if (abortController.signal.aborted) return;
         let parsedArgs: Record<string, unknown> = {};
         try {
           parsedArgs = tc.function.arguments ? JSON.parse(tc.function.arguments) : {};
@@ -413,11 +509,15 @@ router.post('/chat', async (req: Request, res: Response) => {
       }
     }
 
+    const fallbackReply = 'Operazione completata (raggiunto limite massimo di step tool).';
+    const chatId = await persistConversation(fallbackReply);
     res.json({
-      reply: 'Operazione completata (raggiunto limite massimo di step tool).',
+      chatId,
+      reply: fallbackReply,
       toolCalls: executedTools,
     });
   } catch (err) {
+    if (abortController.signal.aborted || res.writableEnded) return;
     const message = err instanceof Error ? err.message : 'Errore agente AI';
     res.status(502).json({ error: message });
   }

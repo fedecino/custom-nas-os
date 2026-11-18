@@ -41,17 +41,22 @@ jobs:
             semantic-release --dry-run 2>&1 || true)
           echo "$DRY_OUT"
           if echo "$DRY_OUT" | grep -q "The next release version is"; then
+            NEXT_VER=$(echo "$DRY_OUT" | grep -oP 'The next release version is \K[0-9]+\.[0-9]+\.[0-9]+' | head -n1)
             echo "should_release=true" >> "$GITHUB_OUTPUT"
+            echo "next_version=${NEXT_VER}" >> "$GITHUB_OUTPUT"
           else
             echo "should_release=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Build x86_64 Bootable ISO via Docker
         if: steps.check.outputs.should_release == 'true'
+        env:
+          SILOOS_VERSION: ${{ steps.check.outputs.next_version }}
         run: |
           chmod +x iso-builder/build-iso-docker.sh iso-builder/build-iso.sh
           ./iso-builder/build-iso-docker.sh
-          sha256sum siloos-debian13-amd64.iso > siloos-debian13-amd64.iso.sha256
+          ISO_FILE=$(ls -1 siloos-x86_64-*.iso | head -n1)
+          sha256sum "$ISO_FILE" > "${ISO_FILE}.sha256"
 
       - name: Publish Release with ISO Asset
         if: steps.check.outputs.should_release == 'true'

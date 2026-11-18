@@ -44,11 +44,11 @@
       {
         "assets": [
           {
-            "path": "siloos-debian13-amd64.iso",
-            "label": "SiloOS Debian 13 (amd64) Bootable ISO"
+            "path": "siloos-x86_64-*.iso",
+            "label": "SiloOs x86_64 Bootable ISO"
           },
           {
-            "path": "siloos-debian13-amd64.iso.sha256",
+            "path": "siloos-x86_64-*.iso.sha256",
             "label": "SHA256 Checksum"
           }
         ]

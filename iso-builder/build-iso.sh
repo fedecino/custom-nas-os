@@ -4,7 +4,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 WORK_DIR="${LB_WORK_DIR:-${SCRIPT_DIR}/work}"
-OUTPUT_ISO="${REPO_ROOT}/siloos-debian13-amd64.iso"
+APP_VERSION="${SILOOS_VERSION:-$(cat "${REPO_ROOT}/VERSION" 2>/dev/null | tr -d '[:space:]' || echo '1.0.0')}"
+OUTPUT_ISO="${REPO_ROOT}/siloos-x86_64-v${APP_VERSION}.iso"
 
 if [ "$(id -u)" -ne 0 ]; then
   echo "ERROR: build-iso.sh must be run as root (or via build-iso-docker.sh)"
@@ -56,8 +57,8 @@ lb config \
   --compression gzip \
   --apt-recommends false \
   --memtest none \
-  --iso-application "SiloOS" \
-  --iso-volume "SILOOS-DEBIAN13" \
+  --iso-application "SiloOs" \
+  --iso-volume "SILOOS_X86_64" \
   --bootappend-live "boot=live components quiet loglevel=3" \
   --bootappend-install "cdrom-detect/try-usb=true quiet loglevel=3"
 

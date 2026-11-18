@@ -635,17 +635,23 @@ type ActiveWindow =
                   <a
                     [href]="getWebPort(stack) ? getAppUrl(getWebPort(stack)!) : null"
                     [target]="getWebPort(stack) ? '_blank' : null"
+                    rel="noopener"
                     (click)="!getWebPort(stack) && toggleStackMenu(stack.name)"
-                    class="flex cursor-pointer flex-col items-center"
+                    class="flex h-full w-full cursor-pointer flex-col items-center justify-center"
                   >
                     <div
-                      class="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-slate-700 to-slate-800 text-lg font-bold text-sky-300 shadow-lg transition group-hover:scale-105"
+                      class="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-[#141e33] to-[#0f172a] border border-[#1e293b] text-lg font-bold text-[#38bdf8] shadow-lg transition group-hover:scale-105"
                     >
                       {{ stack.name.slice(0, 2).toUpperCase() }}
                     </div>
                     <span class="mt-3 max-w-full truncate text-xs font-medium text-white">
                       {{ stack.name }}
                     </span>
+                    @if (getWebPort(stack); as port) {
+                      <span class="mt-0.5 font-mono text-[10px] text-[#38bdf8]/80">
+                        :{{ port }} ↗
+                      </span>
+                    }
                   </a>
 
                   <!-- Quick Dropdown Menu -->
@@ -718,12 +724,11 @@ type ActiveWindow =
       >
         <div class="flex items-center gap-2">
           <span class="font-semibold text-slate-200">{{ uiSettings().nasName }}</span>
-          <span class="rounded bg-white/10 px-1.5 py-0.5 font-mono text-[10px] text-sky-300">
+          <span class="rounded bg-white/10 px-1.5 py-0.5 font-mono text-[10px] text-[#38bdf8]">
             v{{ appVersion() }}
           </span>
-          <span>· Debian 13 (Trixie) Headless NAS</span>
         </div>
-        <span>Porta 80 · Docker & Storage Ready</span>
+        <span>SiloOs Storage & Container Platform</span>
       </footer>
 
       <!-- OS Window Modal -->
@@ -1049,6 +1054,7 @@ export class AppComponent implements OnInit, OnDestroy {
       next: (res) => {
         this.uiSettings.set(res.settings);
         if (res.version) this.appVersion.set(res.version);
+        document.title = `${res.settings.nasName} v${res.version || this.appVersion()}`;
       },
       error: () => {},
     });
@@ -1219,9 +1225,22 @@ export class AppComponent implements OnInit, OnDestroy {
   }
 
   getWebPort(stack: StackInfo): string | null {
-    const ports = stack.containers[0]?.ports ?? '';
-    const match = ports.match(/:(\d+)->/);
-    return match?.[1] ?? null;
+    const tcpPorts: string[] = [];
+    for (const c of stack.containers) {
+      if (!c.ports) continue;
+      for (const m of c.ports.matchAll(/:(\d+)->(\d+)\/tcp/g)) {
+        if (m[1]) tcpPorts.push(m[1]);
+      }
+      if (tcpPorts.length === 0) {
+        for (const m of c.ports.matchAll(/:(\d+)->/g)) {
+          if (m[1]) tcpPorts.push(m[1]);
+        }
+      }
+    }
+    if (tcpPorts.length === 0) return null;
+
+    const preferred = ['8096', '80', '8080', '9000', '3000', '5000', '8000', '443', '8443'];
+    return tcpPorts.find((p) => preferred.includes(p)) ?? tcpPorts[0];
   }
 
   getAppUrl(port: string): string {

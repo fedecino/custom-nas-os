@@ -217,6 +217,13 @@ export interface AiChatMessage {
   toolCalls?: Array<{ name: string; ok: boolean }>;
 }
 
+export interface StoredAiChat {
+  id: string;
+  title: string;
+  updatedAt: string;
+  messages: AiChatMessage[];
+}
+
 export interface DirectoryBrowseResponse {
   currentPath: string;
   parentPath: string | null;
@@ -571,6 +578,44 @@ export class ApiService {
       reply: string;
       toolCalls: Array<{ name: string; ok: boolean }>;
     }>('/api/ai/chat', { messages });
+  }
+
+  getAiHistory(): Observable<{ chats: StoredAiChat[] }> {
+    return this.http.get<{ chats: StoredAiChat[] }>('/api/ai/history');
+  }
+
+  deleteAiChat(id: string): Observable<{ success: boolean }> {
+    return this.http.delete<{ success: boolean }>(
+      `/api/ai/history/${encodeURIComponent(id)}`
+    );
+  }
+
+  async sendAiChatWithAbort(
+    chatId: string | null,
+    messages: AiChatMessage[],
+    signal: AbortSignal
+  ): Promise<{
+    chatId: string;
+    reply: string;
+    toolCalls: Array<{ name: string; ok: boolean }>;
+  }> {
+    const res = await fetch('/api/ai/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chatId: chatId ?? undefined, messages }),
+      signal,
+    });
+    if (!res.ok) {
+      let msg = `HTTP ${res.status}`;
+      try {
+        const body = (await res.json()) as { error?: string };
+        if (body.error) msg = body.error;
+      } catch {
+        // ignore
+      }
+      throw new Error(msg);
+    }
+    return res.json();
   }
 
   browseDirectory(dirPath: string): Observable<DirectoryBrowseResponse> {
