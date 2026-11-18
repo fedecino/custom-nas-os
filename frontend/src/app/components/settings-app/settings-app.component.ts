@@ -256,14 +256,16 @@ import {
                 }
               </div>
 
-              <button
-                type="button"
-                (click)="showAuthPrompt.set(true)"
-                [disabled]="updatingSystem() || (st.initialized && !st.updateAvailable)"
-                class="rounded-xl bg-emerald-500 px-4 py-1.5 text-xs font-semibold text-slate-950 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400"
-              >
-                Aggiorna Sistema
-              </button>
+              @if (!st.initialized || st.updateAvailable) {
+                <button
+                  type="button"
+                  (click)="showAuthPrompt.set(true)"
+                  [disabled]="updatingSystem()"
+                  class="rounded-xl bg-emerald-500 px-4 py-1.5 text-xs font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-50"
+                >
+                  Aggiorna Sistema
+                </button>
+              }
             </div>
 
             @if (st.latestReleaseDate || st.latestReleaseVersion) {

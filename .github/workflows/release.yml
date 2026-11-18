@@ -32,6 +32,7 @@ jobs:
         run: |
           npx --yes \
             -p semantic-release@24 \
+            -p conventional-changelog-conventionalcommits@8 \
             -p @semantic-release/changelog@6 \
             -p @semantic-release/git@10 \
             -p @semantic-release/github@11 \
