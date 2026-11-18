@@ -1,7 +1,21 @@
-import { Component, OnInit, inject, signal } from '@angular/core';
+import {
+  Component,
+  ElementRef,
+  HostListener,
+  OnInit,
+  ViewChild,
+  inject,
+  signal,
+} from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ApiService, FileEntry, MountedDisk } from '../../services/api.service';
+
+interface ContextMenuState {
+  x: number;
+  y: number;
+  item: FileEntry | null;
+}
 
 @Component({
   selector: 'app-file-manager',
@@ -9,7 +23,7 @@ import { ApiService, FileEntry, MountedDisk } from '../../services/api.service';
   imports: [CommonModule, FormsModule],
   template: `
     <div
-      class="relative flex h-full flex-col space-y-4"
+      class="relative flex h-full flex-col space-y-4 select-none"
       (dragover)="onDragOver($event)"
       (dragleave)="onDragLeave($event)"
       (drop)="onDrop($event)"
@@ -33,7 +47,7 @@ import { ApiService, FileEntry, MountedDisk } from '../../services/api.service';
         </div>
       }
 
-      <!-- Top Action Bar -->
+      <!-- Top Bar -->
       <div class="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 class="text-lg font-semibold text-white">Files (File Manager)</h2>
@@ -51,28 +65,20 @@ import { ApiService, FileEntry, MountedDisk } from '../../services/api.service';
             </button>
           }
 
-          <div class="flex gap-1.5">
-            <input
-              type="text"
-              [(ngModel)]="newFolderName"
-              placeholder="Nuova cartella..."
-              class="w-36 rounded-xl border border-white/10 bg-black/35 px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:border-sky-400 focus:outline-none"
-            />
-            <button
-              type="button"
-              (click)="createFolder()"
-              [disabled]="!newFolderName.trim()"
-              class="rounded-xl bg-white/10 px-3 py-1.5 text-xs font-medium text-white hover:bg-white/20 disabled:opacity-40"
-            >
-              + Cartella
-            </button>
-          </div>
+          <button
+            type="button"
+            (click)="openDir(currentPath())"
+            class="rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-200 hover:bg-white/10"
+          >
+            Aggiorna
+          </button>
 
           <label
             class="cursor-pointer rounded-xl bg-sky-500 px-3.5 py-1.5 text-xs font-semibold text-slate-950 hover:bg-sky-400"
           >
             Carica File
             <input
+              #fileInput
               type="file"
               multiple
               class="hidden"
@@ -110,7 +116,7 @@ import { ApiService, FileEntry, MountedDisk } from '../../services/api.service';
         </div>
       }
 
-      <!-- Main Split: Quick Roots + Files Table -->
+      <!-- Main Split: Quick Roots + Files Area -->
       <div class="grid min-h-0 flex-1 grid-cols-1 gap-4 md:grid-cols-12">
         <!-- Quick Access Sidebar -->
         <div
@@ -136,76 +142,53 @@ import { ApiService, FileEntry, MountedDisk } from '../../services/api.service';
           }
 
           <div class="mt-4 rounded-xl border border-dashed border-white/15 p-3 text-[11px] text-slate-400">
-            💡 Puoi trascinare file dal tuo PC direttamente dentro questa finestra per caricarli sul NAS.
+            💡 Usa il <strong>tasto destro del mouse</strong> su file, cartelle o spazi vuoti per creare, rinominare, scaricare o eliminare. Trascina file dal PC per caricarli.
           </div>
         </div>
 
-        <!-- Files List -->
+        <!-- Files Area (Right-click enabled on both items and empty space) -->
         <div
+          (contextmenu)="onEmptyContextMenu($event)"
           class="min-h-0 overflow-y-auto rounded-2xl border border-white/10 bg-slate-900/60 md:col-span-9"
         >
           @if (items().length === 0) {
             <div class="flex h-full flex-col items-center justify-center py-16 text-center text-xs text-slate-400">
               <div class="text-3xl">📂</div>
-              <p class="mt-2">Cartella vuota. Trascina qui dei file dal PC per caricarli.</p>
+              <p class="mt-2">
+                Cartella vuota. Fai click destro per creare un file/cartella o trascina qui dei file dal PC.
+              </p>
             </div>
           } @else {
             <table class="w-full text-left text-xs">
               <thead class="sticky top-0 border-b border-white/10 bg-slate-950/95 text-[11px] uppercase text-slate-400">
                 <tr>
                   <th class="px-4 py-2.5">Nome</th>
-                  <th class="px-4 py-2.5">Dimensione</th>
-                  <th class="px-4 py-2.5 text-right">Azioni</th>
+                  <th class="px-4 py-2.5 text-right">Dimensione</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-white/5">
                 @for (item of items(); track item.path) {
-                  <tr class="hover:bg-white/[0.04]">
+                  <tr
+                    (dblclick)="item.isDirectory ? openDir(item.path) : downloadItem(item)"
+                    (contextmenu)="onItemContextMenu($event, item)"
+                    class="cursor-pointer transition hover:bg-white/[0.06]"
+                  >
                     <td class="px-4 py-2.5">
-                      @if (item.isDirectory) {
-                        <button
-                          type="button"
-                          (click)="openDir(item.path)"
-                          class="flex items-center gap-2.5 font-medium text-white hover:text-sky-300"
+                      <div class="flex items-center gap-2.5">
+                        <span>{{ item.isDirectory ? '📁' : '📄' }}</span>
+                        <span
+                          [ngClass]="
+                            item.isDirectory
+                              ? 'font-medium text-white'
+                              : 'text-slate-200'
+                          "
                         >
-                          <span>📁</span>
-                          <span>{{ item.name }}</span>
-                        </button>
-                      } @else {
-                        <div class="flex items-center gap-2.5 text-slate-200">
-                          <span>📄</span>
-                          <span>{{ item.name }}</span>
-                        </div>
-                      }
-                    </td>
-                    <td class="px-4 py-2.5 font-mono text-[11px] text-slate-400">
-                      {{ item.isDirectory ? '—' : formatBytes(item.size) }}
-                    </td>
-                    <td class="px-4 py-2.5 text-right whitespace-nowrap">
-                      <div class="inline-flex gap-1.5">
-                        @if (!item.isDirectory) {
-                          <a
-                            [href]="getDownloadUrl(item.path)"
-                            class="rounded-lg bg-sky-500/15 px-2.5 py-1 text-[11px] text-sky-300 hover:bg-sky-500/25"
-                          >
-                            Scarica
-                          </a>
-                        }
-                        <button
-                          type="button"
-                          (click)="renameItem(item)"
-                          class="rounded-lg bg-white/10 px-2.5 py-1 text-[11px] text-slate-200 hover:bg-white/20"
-                        >
-                          Rinomina
-                        </button>
-                        <button
-                          type="button"
-                          (click)="deleteItem(item)"
-                          class="rounded-lg bg-rose-500/15 px-2.5 py-1 text-[11px] text-rose-300 hover:bg-rose-500/25"
-                        >
-                          Elimina
-                        </button>
+                          {{ item.name }}
+                        </span>
                       </div>
+                    </td>
+                    <td class="px-4 py-2.5 text-right font-mono text-[11px] text-slate-400">
+                      {{ item.isDirectory ? '—' : formatBytes(item.size) }}
                     </td>
                   </tr>
                 }
@@ -214,11 +197,96 @@ import { ApiService, FileEntry, MountedDisk } from '../../services/api.service';
           }
         </div>
       </div>
+
+      <!-- Context Menu (Right Click) -->
+      @if (contextMenu(); as cm) {
+        <div
+          [style.left.px]="cm.x"
+          [style.top.px]="cm.y"
+          (click)="$event.stopPropagation()"
+          class="fixed z-50 w-48 rounded-2xl border border-white/15 bg-slate-900/95 p-1.5 text-xs shadow-2xl backdrop-blur-xl"
+        >
+          @if (cm.item; as item) {
+            @if (item.isDirectory) {
+              <button
+                type="button"
+                (click)="openDir(item.path); closeContextMenu()"
+                class="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-white hover:bg-white/10"
+              >
+                <span>📂</span>
+                <span>Apri cartella</span>
+              </button>
+            } @else {
+              <button
+                type="button"
+                (click)="downloadItem(item); closeContextMenu()"
+                class="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sky-300 hover:bg-white/10"
+              >
+                <span>⬇️</span>
+                <span>Scarica file</span>
+              </button>
+            }
+            <button
+              type="button"
+              (click)="renameItem(item); closeContextMenu()"
+              class="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-slate-200 hover:bg-white/10"
+            >
+              <span>✏️</span>
+              <span>Rinomina</span>
+            </button>
+            <div class="my-1 border-t border-white/10"></div>
+            <button
+              type="button"
+              (click)="deleteItem(item); closeContextMenu()"
+              class="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-rose-300 hover:bg-rose-500/15"
+            >
+              <span>🗑️</span>
+              <span>Elimina</span>
+            </button>
+          } @else {
+            <button
+              type="button"
+              (click)="promptCreateFolder(); closeContextMenu()"
+              class="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-white hover:bg-white/10"
+            >
+              <span>📁</span>
+              <span>Nuova cartella</span>
+            </button>
+            <button
+              type="button"
+              (click)="promptCreateFile(); closeContextMenu()"
+              class="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-white hover:bg-white/10"
+            >
+              <span>📄</span>
+              <span>Nuovo file</span>
+            </button>
+            <button
+              type="button"
+              (click)="triggerUpload(); closeContextMenu()"
+              class="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sky-300 hover:bg-white/10"
+            >
+              <span>📤</span>
+              <span>Carica file dal PC...</span>
+            </button>
+            <div class="my-1 border-t border-white/10"></div>
+            <button
+              type="button"
+              (click)="openDir(currentPath()); closeContextMenu()"
+              class="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-slate-300 hover:bg-white/10"
+            >
+              <span>🔄</span>
+              <span>Aggiorna</span>
+            </button>
+          }
+        </div>
+      }
     </div>
   `,
 })
 export class FileManagerComponent implements OnInit {
   private readonly api = inject(ApiService);
+
+  @ViewChild('fileInput') fileInput?: ElementRef<HTMLInputElement>;
 
   currentPath = signal('/DATA');
   parentPath = signal<string | null>('/');
@@ -229,7 +297,15 @@ export class FileManagerComponent implements OnInit {
   feedbackOk = signal(true);
   dragActive = signal(false);
   uploadStatus = signal<{ filename: string; percent: number } | null>(null);
-  newFolderName = '';
+  contextMenu = signal<ContextMenuState | null>(null);
+
+  @HostListener('document:click')
+  @HostListener('document:keydown.escape')
+  closeContextMenu(): void {
+    if (this.contextMenu()) {
+      this.contextMenu.set(null);
+    }
+  }
 
   ngOnInit(): void {
     this.api.getStorageDisks().subscribe({
@@ -237,6 +313,24 @@ export class FileManagerComponent implements OnInit {
       error: () => {},
     });
     this.openDir('/DATA');
+  }
+
+  onItemContextMenu(event: MouseEvent, item: FileEntry): void {
+    event.preventDefault();
+    event.stopPropagation();
+    this.openMenuAt(event.clientX, event.clientY, item);
+  }
+
+  onEmptyContextMenu(event: MouseEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+    this.openMenuAt(event.clientX, event.clientY, null);
+  }
+
+  private openMenuAt(clientX: number, clientY: number, item: FileEntry | null): void {
+    const x = Math.min(clientX, window.innerWidth - 205);
+    const y = Math.min(clientY, window.innerHeight - 190);
+    this.contextMenu.set({ x, y, item });
   }
 
   quickRoots(): Array<{ label: string; path: string; icon: string }> {
@@ -277,14 +371,13 @@ export class FileManagerComponent implements OnInit {
     });
   }
 
-  createFolder(): void {
-    const name = this.newFolderName.trim();
-    if (!name) return;
-    this.api.createFileFolder(this.currentPath(), name).subscribe({
+  promptCreateFolder(): void {
+    const name = prompt('Nome nuova cartella:');
+    if (!name || !name.trim()) return;
+    this.api.createFileFolder(this.currentPath(), name.trim()).subscribe({
       next: () => {
-        this.newFolderName = '';
         this.feedbackOk.set(true);
-        this.feedback.set(`Cartella "${name}" creata`);
+        this.feedback.set(`Cartella "${name.trim()}" creata`);
         this.openDir(this.currentPath());
       },
       error: (err) => {
@@ -292,6 +385,26 @@ export class FileManagerComponent implements OnInit {
         this.feedback.set(err?.error?.error ?? 'Errore creazione cartella');
       },
     });
+  }
+
+  promptCreateFile(): void {
+    const name = prompt('Nome nuovo file (es. note.txt):');
+    if (!name || !name.trim()) return;
+    this.api.createEmptyFile(this.currentPath(), name.trim()).subscribe({
+      next: () => {
+        this.feedbackOk.set(true);
+        this.feedback.set(`File "${name.trim()}" creato`);
+        this.openDir(this.currentPath());
+      },
+      error: (err) => {
+        this.feedbackOk.set(false);
+        this.feedback.set(err?.error?.error ?? 'Errore creazione file');
+      },
+    });
+  }
+
+  triggerUpload(): void {
+    this.fileInput?.nativeElement.click();
   }
 
   renameItem(item: FileEntry): void {
@@ -326,8 +439,11 @@ export class FileManagerComponent implements OnInit {
     });
   }
 
-  getDownloadUrl(filePath: string): string {
-    return `/api/files/download?path=${encodeURIComponent(filePath)}`;
+  downloadItem(item: FileEntry): void {
+    window.open(
+      `/api/files/download?path=${encodeURIComponent(item.path)}`,
+      '_blank'
+    );
   }
 
   onDragOver(event: DragEvent): void {

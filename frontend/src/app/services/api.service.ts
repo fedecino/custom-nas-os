@@ -696,6 +696,16 @@ export class ApiService {
     });
   }
 
+  createEmptyFile(
+    parentPath: string,
+    name: string
+  ): Observable<{ success: boolean; path: string }> {
+    return this.http.post<{ success: boolean; path: string }>('/api/files/touch', {
+      parentPath,
+      name,
+    });
+  }
+
   renameFileOrFolder(
     oldPath: string,
     newName: string

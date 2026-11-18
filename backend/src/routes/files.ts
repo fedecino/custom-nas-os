@@ -97,6 +97,29 @@ router.post('/mkdir', async (req: Request, res: Response) => {
   }
 });
 
+router.post('/touch', async (req: Request, res: Response) => {
+  const { parentPath, name } = req.body as { parentPath?: string; name?: string };
+  const cleanName = String(name ?? '').trim();
+  if (!cleanName || cleanName.includes('/') || cleanName === '.' || cleanName === '..') {
+    res.status(400).json({ error: 'Nome file non valido' });
+    return;
+  }
+
+  const target = path.join(path.resolve(parentPath || DATA_DIR), cleanName);
+  if (isProtectedPath(target)) {
+    res.status(403).json({ error: 'Percorso di sistema protetto' });
+    return;
+  }
+
+  try {
+    await fs.writeFile(target, '', { flag: 'wx' });
+    res.json({ success: true, path: target });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Errore creazione file';
+    res.status(500).json({ error: message });
+  }
+});
+
 router.post('/rename', async (req: Request, res: Response) => {
   const { oldPath, newName } = req.body as { oldPath?: string; newName?: string };
   const cleanName = String(newName ?? '').trim();
