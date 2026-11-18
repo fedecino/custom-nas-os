@@ -1,3 +1,9 @@
+## [1.9.1](https://github.com/fedecino/custom-nas-os/compare/v1.9.0...v1.9.1) (2026-11-18)
+
+### Bug Fixes
+
+* sistemato il certificato per https ([b564807](https://github.com/fedecino/custom-nas-os/commit/b564807e092f5324b55d9d1977fd54b1b62b5797))
+
 ## [1.9.0](https://github.com/fedecino/custom-nas-os/compare/v1.8.0...v1.9.0) (2026-11-18)
 
 ### Features
