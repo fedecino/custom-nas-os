@@ -58,6 +58,25 @@ interface ContextMenuState {
         </div>
 
         <div class="flex flex-wrap items-center gap-2">
+          @if (clipboard(); as cb) {
+            <button
+              type="button"
+              (click)="pasteInto(currentPath())"
+              [disabled]="pasting()"
+              class="rounded-xl bg-[#00ff88] px-3 py-1.5 text-xs font-semibold text-[#062417] hover:brightness-110 disabled:opacity-50"
+            >
+              {{ pasting() ? 'Incolla...' : '📌 Incolla (' + cb.paths.length + ')' }}
+            </button>
+            <button
+              type="button"
+              (click)="clipboard.set(null)"
+              title="Svuota appunti"
+              class="rounded-xl border border-white/10 bg-white/5 px-2.5 py-1.5 text-xs text-slate-300 hover:bg-white/10"
+            >
+              ✕
+            </button>
+          }
+
           @if (selectedPaths().size > 1) {
             <button
               type="button"
@@ -199,11 +218,12 @@ interface ContextMenuState {
                     (dblclick)="item.isDirectory ? openDir(item.path) : openFilePreview(item)"
                     (contextmenu)="onItemContextMenu($event, item, idx)"
                     class="cursor-pointer transition"
-                    [ngClass]="
+                    [ngClass]="[
                       isSelected(item.path)
                         ? 'bg-[#38bdf8]/15 hover:bg-[#38bdf8]/20'
-                        : 'hover:bg-white/[0.06]'
-                    "
+                        : 'hover:bg-white/[0.06]',
+                      isCutPath(item.path) ? 'opacity-55' : ''
+                    ]"
                   >
                     <td class="px-3 py-2.5 text-center">
                       <input
@@ -294,6 +314,32 @@ interface ContextMenuState {
             }
             <button
               type="button"
+              (click)="copyToClipboard('copy', item); closeContextMenu()"
+              class="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-slate-200 hover:bg-white/10"
+            >
+              <span>📋</span>
+              <span>{{ selectedPaths().size > 1 ? 'Copia (' + selectedPaths().size + ')' : 'Copia' }}</span>
+            </button>
+            <button
+              type="button"
+              (click)="copyToClipboard('cut', item); closeContextMenu()"
+              class="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-amber-300 hover:bg-white/10"
+            >
+              <span>✂️</span>
+              <span>{{ selectedPaths().size > 1 ? 'Taglia (' + selectedPaths().size + ')' : 'Taglia' }}</span>
+            </button>
+            @if (item.isDirectory && clipboard()) {
+              <button
+                type="button"
+                (click)="pasteInto(item.path); closeContextMenu()"
+                class="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-[#00ff88] hover:bg-white/10"
+              >
+                <span>📌</span>
+                <span>Incolla in "{{ item.name }}"</span>
+              </button>
+            }
+            <button
+              type="button"
               (click)="renameItem(item); closeContextMenu()"
               class="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-slate-200 hover:bg-white/10"
             >
@@ -321,6 +367,17 @@ interface ContextMenuState {
               </button>
             }
           } @else {
+            @if (clipboard(); as cb) {
+              <button
+                type="button"
+                (click)="pasteInto(currentPath()); closeContextMenu()"
+                class="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left font-medium text-[#00ff88] hover:bg-white/10"
+              >
+                <span>📌</span>
+                <span>Incolla qui ({{ cb.paths.length }})</span>
+              </button>
+              <div class="my-1 border-t border-white/10"></div>
+            }
             <button
               type="button"
               (click)="promptCreateFolder(); closeContextMenu()"
@@ -602,6 +659,8 @@ export class FileManagerComponent implements OnInit {
   userHomePath = signal('/DATA');
   allowedRoots = signal<Array<{ label: string; path: string; mode: 'ro' | 'rw' }>>([]);
   selectedPaths = signal<Set<string>>(new Set());
+  clipboard = signal<{ mode: 'copy' | 'cut'; paths: string[] } | null>(null);
+  pasting = signal(false);
   anchorIndex = signal<number | null>(null);
   focusIndex = signal<number | null>(null);
   selectionBox = signal<{ left: number; top: number; width: number; height: number } | null>(null);
@@ -693,6 +752,53 @@ export class FileManagerComponent implements OnInit {
     return this.selectedPaths().has(filePath);
   }
 
+  isCutPath(filePath: string): boolean {
+    const cb = this.clipboard();
+    return Boolean(cb && cb.mode === 'cut' && cb.paths.includes(filePath));
+  }
+
+  copyToClipboard(mode: 'copy' | 'cut', fallbackItem?: FileEntry): void {
+    const selected = Array.from(this.selectedPaths());
+    const paths =
+      selected.length > 0 ? selected : fallbackItem ? [fallbackItem.path] : [];
+    if (paths.length === 0) return;
+
+    this.clipboard.set({ mode, paths });
+    this.feedbackOk.set(true);
+    this.feedback.set(
+      mode === 'cut'
+        ? `${paths.length} ${paths.length === 1 ? 'elemento tagliato' : 'elementi tagliati'} negli appunti. Vai nella cartella di destinazione e clicca Incolla.`
+        : `${paths.length} ${paths.length === 1 ? 'elemento copiato' : 'elementi copiati'} negli appunti. Vai nella cartella di destinazione e clicca Incolla.`
+    );
+  }
+
+  pasteInto(targetDir: string): void {
+    const cb = this.clipboard();
+    if (!cb || cb.paths.length === 0 || this.pasting()) return;
+
+    this.pasting.set(true);
+    this.api.pasteFiles(cb.mode, cb.paths, targetDir).subscribe({
+      next: (res) => {
+        this.pasting.set(false);
+        this.feedbackOk.set(true);
+        this.feedback.set(
+          cb.mode === 'cut'
+            ? `Spostati ${res.count} elementi`
+            : `Copiati ${res.count} elementi`
+        );
+        if (cb.mode === 'cut') {
+          this.clipboard.set(null);
+        }
+        this.openDir(this.currentPath());
+      },
+      error: (err) => {
+        this.pasting.set(false);
+        this.feedbackOk.set(false);
+        this.feedback.set(err?.error?.error ?? 'Errore durante incolla');
+      },
+    });
+  }
+
   clearSelection(): void {
     this.selectedPaths.set(new Set());
     this.anchorIndex.set(null);
@@ -769,6 +875,31 @@ export class FileManagerComponent implements OnInit {
 
   onFilesKeyDown(event: KeyboardEvent): void {
     const list = this.items();
+
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'c') {
+      if (this.selectedPaths().size > 0) {
+        event.preventDefault();
+        this.copyToClipboard('copy');
+      }
+      return;
+    }
+
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'x') {
+      if (this.selectedPaths().size > 0) {
+        event.preventDefault();
+        this.copyToClipboard('cut');
+      }
+      return;
+    }
+
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'v') {
+      if (this.clipboard()) {
+        event.preventDefault();
+        this.pasteInto(this.currentPath());
+      }
+      return;
+    }
+
     if (list.length === 0) return;
 
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'a') {

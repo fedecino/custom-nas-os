@@ -261,6 +261,123 @@ router.post('/rename', async (req: Request, res: Response) => {
   }
 });
 
+async function resolveUniqueDestPath(targetDir: string, baseName: string): Promise<string> {
+  const initial = path.join(targetDir, baseName);
+  try {
+    await fs.access(initial);
+  } catch {
+    return initial;
+  }
+
+  const ext = path.extname(baseName);
+  const stem = ext ? baseName.slice(0, -ext.length) : baseName;
+  for (let i = 1; i <= 999; i++) {
+    const suffix = i === 1 ? ' (copia)' : ` (copia ${i})`;
+    const candidate = path.join(targetDir, `${stem}${suffix}${ext}`);
+    try {
+      await fs.access(candidate);
+    } catch {
+      return candidate;
+    }
+  }
+  return path.join(targetDir, `${stem}-${Date.now()}${ext}`);
+}
+
+router.post('/paste', async (req: Request, res: Response) => {
+  const ctx = await getUserFileContext(req);
+  const { mode, sources, targetDir } = req.body as {
+    mode?: 'copy' | 'cut';
+    sources?: string[];
+    targetDir?: string;
+  };
+
+  if (mode !== 'copy' && mode !== 'cut') {
+    res.status(400).json({ error: 'Modalità non valida (usa copy o cut)' });
+    return;
+  }
+  const sourceList = (Array.isArray(sources) ? sources : [])
+    .map((s) => String(s).trim())
+    .filter(Boolean);
+  if (sourceList.length === 0 || !targetDir?.trim()) {
+    res.status(400).json({ error: 'Sorgenti o cartella di destinazione mancanti' });
+    return;
+  }
+
+  const resolvedTargetDir = path.resolve(targetDir.trim());
+  if (isProtectedPath(resolvedTargetDir)) {
+    res.status(403).json({ error: 'Cartella di destinazione protetta' });
+    return;
+  }
+  if (!checkUserAccess(ctx, resolvedTargetDir, 'rw').allowed) {
+    res.status(403).json({ error: 'Permessi di scrittura mancanti nella cartella di destinazione' });
+    return;
+  }
+
+  try {
+    const destStat = await fs.stat(resolvedTargetDir);
+    if (!destStat.isDirectory()) {
+      res.status(400).json({ error: 'La destinazione non è una cartella' });
+      return;
+    }
+
+    const processed: string[] = [];
+    for (const rawSrc of sourceList) {
+      const resolvedSrc = path.resolve(rawSrc);
+      if (isProtectedPath(resolvedSrc)) {
+        res.status(403).json({ error: `Percorso protetto: ${resolvedSrc}` });
+        return;
+      }
+      if (mode === 'cut' && (resolvedSrc === DATA_DIR || resolvedSrc === ctx.homePath)) {
+        res.status(403).json({ error: 'Impossibile spostare questa directory principale' });
+        return;
+      }
+      if (!checkUserAccess(ctx, resolvedSrc, mode === 'cut' ? 'rw' : 'ro').allowed) {
+        res.status(403).json({ error: `Permesso negato su: ${path.basename(resolvedSrc)}` });
+        return;
+      }
+
+      // Prevent copying/moving a folder into itself
+      if (
+        resolvedTargetDir === resolvedSrc ||
+        resolvedTargetDir.startsWith(`${resolvedSrc}/`)
+      ) {
+        res.status(400).json({
+          error: `Impossibile ${mode === 'cut' ? 'spostare' : 'copiare'} "${path.basename(resolvedSrc)}" dentro se stessa`,
+        });
+        return;
+      }
+
+      const baseName = path.basename(resolvedSrc);
+      if (mode === 'cut' && path.dirname(resolvedSrc) === resolvedTargetDir) {
+        // Already in the same directory: no-op
+        continue;
+      }
+
+      const finalDest = await resolveUniqueDestPath(resolvedTargetDir, baseName);
+      if (mode === 'copy') {
+        await fs.cp(resolvedSrc, finalDest, { recursive: true });
+      } else {
+        try {
+          await fs.rename(resolvedSrc, finalDest);
+        } catch (err) {
+          if ((err as NodeJS.ErrnoException)?.code === 'EXDEV') {
+            await fs.cp(resolvedSrc, finalDest, { recursive: true });
+            await fs.rm(resolvedSrc, { recursive: true, force: false });
+          } else {
+            throw err;
+          }
+        }
+      }
+      processed.push(finalDest);
+    }
+
+    res.json({ success: true, count: processed.length, paths: processed });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Operazione copia/spostamento fallita';
+    res.status(500).json({ error: message });
+  }
+});
+
 router.delete('/delete', async (req: Request, res: Response) => {
   const ctx = await getUserFileContext(req);
   const target = String(req.query.path ?? '').trim();

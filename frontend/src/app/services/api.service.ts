@@ -1131,6 +1131,17 @@ export class ApiService {
     }>('/api/files/roots');
   }
 
+  pasteFiles(
+    mode: 'copy' | 'cut',
+    sources: string[],
+    targetDir: string
+  ): Observable<{ success: boolean; count: number; paths: string[] }> {
+    return this.http.post<{ success: boolean; count: number; paths: string[] }>(
+      '/api/files/paste',
+      { mode, sources, targetDir }
+    );
+  }
+
   checkSystemUpdates(): Observable<SystemUpdateStatus> {
     return this.http.get<SystemUpdateStatus>('/api/settings/updates');
   }
