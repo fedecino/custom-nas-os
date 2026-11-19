@@ -6,6 +6,8 @@ import {
   BackupJob,
   BackupRepositoryView,
   BackupStatusResponse,
+  MountedDisk,
+  NetworkMountEntry,
   ResticSnapshot,
 } from '../../services/api.service';
 import { DialogService } from '../../services/dialog.service';
@@ -351,11 +353,48 @@ type BackupTab = 'jobs' | 'repos' | 'snapshots';
                 [(ngModel)]="repoForm.type"
                 class="mt-1 w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-xs text-white focus:border-[#38bdf8] focus:outline-none"
               >
-                <option value="local">Cartella Locale / Disco USB</option>
+                <option value="local">Disco USB / Disco di Rete / Cartella Locale</option>
                 <option value="sftp">Server Remoto (SFTP / SSH)</option>
                 <option value="s3">Cloud S3 (AWS, Backblaze B2, MinIO, Wasabi)</option>
               </select>
             </div>
+
+            @if (repoForm.type === 'local' && backupDestinations().length > 0) {
+              <div class="sm:col-span-2 space-y-2">
+                <label class="block text-xs font-medium text-slate-300">
+                  Seleziona Disco USB o Disco di Rete montato
+                </label>
+                <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  @for (dest of backupDestinations(); track dest.path) {
+                    <button
+                      type="button"
+                      (click)="selectBackupDestination(dest)"
+                      class="flex items-center justify-between gap-2 rounded-xl border p-3 text-left text-xs transition"
+                      [ngClass]="
+                        repoForm.url === dest.repoPath
+                          ? 'border-[#38bdf8] bg-[#38bdf8]/15 text-white'
+                          : 'border-white/10 bg-black/25 text-slate-300 hover:bg-white/10'
+                      "
+                    >
+                      <div class="min-w-0">
+                        <div class="flex items-center gap-1.5 font-semibold text-white">
+                          <span>{{ dest.icon }}</span>
+                          <span class="truncate">{{ dest.label }}</span>
+                        </div>
+                        <div class="mt-0.5 truncate font-mono text-[10px] text-slate-400">
+                          {{ dest.path }}
+                        </div>
+                      </div>
+                      @if (dest.subtitle) {
+                        <span class="shrink-0 rounded bg-white/10 px-1.5 py-0.5 font-mono text-[10px] text-sky-300">
+                          {{ dest.subtitle }}
+                        </span>
+                      }
+                    </button>
+                  }
+                </div>
+              </div>
+            }
 
             <div class="sm:col-span-2">
               <label class="block text-xs font-medium text-slate-300">
@@ -555,6 +594,8 @@ export class BackupManagerComponent implements OnInit {
   loadingSnapshots = signal(false);
   restoringSnapId = signal<string | null>(null);
   snapshots = signal<ResticSnapshot[]>([]);
+  mountedDisks = signal<MountedDisk[]>([]);
+  networkMounts = signal<NetworkMountEntry[]>([]);
   selectedSnapRepoId = '';
 
   feedback = signal<string | null>(null);
@@ -629,6 +670,73 @@ export class BackupManagerComponent implements OnInit {
         this.feedback.set(err?.error?.error ?? 'Errore caricamento stato Restic');
       },
     });
+    this.api.getStorageDisks().subscribe({
+      next: (res) => this.mountedDisks.set(res.mounts ?? []),
+      error: () => {},
+    });
+    this.api.getNetworkMounts().subscribe({
+      next: (res) => this.networkMounts.set(res.mounts ?? []),
+      error: () => {},
+    });
+  }
+
+  backupDestinations(): Array<{
+    label: string;
+    path: string;
+    repoPath: string;
+    icon: string;
+    subtitle: string;
+  }> {
+    const list: Array<{
+      label: string;
+      path: string;
+      repoPath: string;
+      icon: string;
+      subtitle: string;
+    }> = [];
+    const seen = new Set<string>();
+
+    for (const nm of this.networkMounts()) {
+      if (seen.has(nm.mountpoint)) continue;
+      seen.add(nm.mountpoint);
+      list.push({
+        label: `Rete: ${nm.name}`,
+        path: nm.mountpoint,
+        repoPath: `${nm.mountpoint}/siloos-restic-backup`,
+        icon: '🌐',
+        subtitle: nm.protocol.toUpperCase(),
+      });
+    }
+
+    for (const m of this.mountedDisks()) {
+      if (
+        !m.mountpoint ||
+        m.mountpoint === '/' ||
+        m.mountpoint.startsWith('/boot') ||
+        seen.has(m.mountpoint)
+      ) {
+        continue;
+      }
+      seen.add(m.mountpoint);
+      const name = m.mountpoint.split('/').filter(Boolean).pop() || m.mountpoint;
+      list.push({
+        label: `Disco: ${name}`,
+        path: m.mountpoint,
+        repoPath: `${m.mountpoint}/siloos-restic-backup`,
+        icon: '💾',
+        subtitle: m.availableBytes
+          ? `${(m.availableBytes / 1024 ** 3).toFixed(1)} GB liberi`
+          : '',
+      });
+    }
+    return list;
+  }
+
+  selectBackupDestination(dest: { label: string; repoPath: string }): void {
+    this.repoForm.url = dest.repoPath;
+    if (!this.repoForm.name.trim()) {
+      this.repoForm.name = `Backup ${dest.label}`;
+    }
   }
 
   installRestic(): void {

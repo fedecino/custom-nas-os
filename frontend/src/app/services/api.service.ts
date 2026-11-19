@@ -291,6 +291,17 @@ export interface BackupStatusResponse {
   jobs: BackupJob[];
 }
 
+export interface NetworkMountEntry {
+  name: string;
+  protocol: 'smb' | 'nfs';
+  host: string;
+  sharePath: string;
+  mountpoint: string;
+  username?: string;
+  persistFstab: boolean;
+  mounted?: boolean;
+}
+
 export interface NetworkInterfaceConfig {
   name: string;
   type: 'ethernet' | 'wifi';
@@ -956,6 +967,31 @@ export class ApiService {
     return this.http.post<{ success: boolean; enabled: boolean }>(
       '/api/storage/usb-automount',
       { enabled }
+    );
+  }
+
+  getNetworkMounts(): Observable<{ mounts: NetworkMountEntry[] }> {
+    return this.http.get<{ mounts: NetworkMountEntry[] }>('/api/storage/network-mounts');
+  }
+
+  mountNetworkDrive(payload: {
+    name: string;
+    protocol: 'smb' | 'nfs';
+    host: string;
+    sharePath: string;
+    username?: string;
+    password?: string;
+    persistFstab?: boolean;
+  }): Observable<{ success: boolean; mount: NetworkMountEntry }> {
+    return this.http.post<{ success: boolean; mount: NetworkMountEntry }>(
+      '/api/storage/network-mounts',
+      payload
+    );
+  }
+
+  unmountNetworkDrive(name: string): Observable<{ success: boolean }> {
+    return this.http.delete<{ success: boolean }>(
+      `/api/storage/network-mounts/${encodeURIComponent(name)}`
     );
   }
 

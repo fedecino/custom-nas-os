@@ -5,6 +5,7 @@ import { promisify } from 'node:util';
 import { Router, Request, Response } from 'express';
 import { DATA_DIR } from '../services/docker.js';
 import { systemEvents } from '../services/events.js';
+import { requireAdmin } from './auth.js';
 
 const execFileAsync = promisify(execFile);
 const router = Router();
@@ -391,6 +392,226 @@ router.post('/usb-automount', async (req: Request, res: Response) => {
     res.json({ success: true, enabled });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Failed to update USB automount';
+    res.status(500).json({ error: message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Network Drives (SMB/CIFS & NFS Mounts under /DATA/Network/<name>)
+// ---------------------------------------------------------------------------
+
+export interface NetworkMountEntry {
+  name: string;
+  protocol: 'smb' | 'nfs';
+  host: string;
+  sharePath: string;
+  mountpoint: string;
+  username?: string;
+  persistFstab: boolean;
+  mounted?: boolean;
+}
+
+const NETWORK_MOUNTS_FILE = path.join(DATA_DIR, '.nas-os', 'network-mounts.json');
+const NETWORK_MOUNTS_DIR = path.join(DATA_DIR, 'Network');
+
+async function readNetworkMounts(): Promise<NetworkMountEntry[]> {
+  try {
+    const raw = await fs.readFile(NETWORK_MOUNTS_FILE, 'utf-8');
+    const parsed = JSON.parse(raw) as NetworkMountEntry[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+async function saveNetworkMounts(list: NetworkMountEntry[]): Promise<void> {
+  await fs.mkdir(path.dirname(NETWORK_MOUNTS_FILE), { recursive: true });
+  await fs.writeFile(NETWORK_MOUNTS_FILE, JSON.stringify(list, null, 2), {
+    encoding: 'utf-8',
+    mode: 0o600,
+  });
+}
+
+async function getActiveMountpoints(): Promise<Set<string>> {
+  try {
+    const procMounts = await fs.readFile('/proc/mounts', 'utf-8');
+    const set = new Set<string>();
+    for (const line of procMounts.split('\n')) {
+      const parts = line.split(' ');
+      if (parts[1]) set.add(parts[1].replace(/\\040/g, ' '));
+    }
+    return set;
+  } catch {
+    return new Set<string>();
+  }
+}
+
+router.get('/network-mounts', async (_req: Request, res: Response) => {
+  try {
+    const [mounts, active] = await Promise.all([readNetworkMounts(), getActiveMountpoints()]);
+    res.json({
+      mounts: mounts.map((m) => ({
+        ...m,
+        mounted: active.has(m.mountpoint),
+      })),
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Errore lettura dischi di rete';
+    res.status(500).json({ error: message });
+  }
+});
+
+router.post('/network-mounts', requireAdmin, async (req: Request, res: Response) => {
+  const { name, protocol, host, sharePath, username, password, persistFstab } = req.body as {
+    name?: string;
+    protocol?: 'smb' | 'nfs';
+    host?: string;
+    sharePath?: string;
+    username?: string;
+    password?: string;
+    persistFstab?: boolean;
+  };
+
+  const cleanName = String(name ?? '').trim();
+  const cleanProto = protocol === 'nfs' ? 'nfs' : 'smb';
+  const cleanHost = String(host ?? '').trim();
+  const cleanShare = String(sharePath ?? '').trim();
+  const cleanUser = String(username ?? '').trim();
+  const cleanPass = String(password ?? '');
+
+  if (!SAFE_LABEL_REGEX.test(cleanName)) {
+    res.status(400).json({
+      error: 'Nome non valido (usa 1-32 caratteri alfanumerici, - o _)',
+    });
+    return;
+  }
+  if (!/^[a-zA-Z0-9._:-]{1,128}$/.test(cleanHost)) {
+    res.status(400).json({ error: 'Host o indirizzo IP non valido' });
+    return;
+  }
+  if (!cleanShare) {
+    res.status(400).json({ error: 'Percorso condivisione obbligatorio' });
+    return;
+  }
+
+  const mountpoint = path.join(NETWORK_MOUNTS_DIR, cleanName);
+
+  try {
+    await fs.mkdir(mountpoint, { recursive: true });
+    let fstabLine = '';
+
+    if (cleanProto === 'smb') {
+      const shareClean = cleanShare.replace(/^\/+/, '');
+      const source = `//${cleanHost}/${shareClean}`;
+      const credsFile = path.join(DATA_DIR, '.nas-os', `netcred-${cleanName}`);
+      let opts = 'iocharset=utf8,file_mode=0775,dir_mode=0775';
+
+      if (cleanUser) {
+        await fs.mkdir(path.dirname(credsFile), { recursive: true });
+        await fs.writeFile(
+          credsFile,
+          `username=${cleanUser}\npassword=${cleanPass}\n`,
+          { encoding: 'utf-8', mode: 0o600 }
+        );
+        opts = `credentials=${credsFile},${opts}`;
+      } else {
+        opts = `guest,${opts}`;
+      }
+
+      try {
+        await execFileAsync('mount', ['-t', 'cifs', source, mountpoint, '-o', `${opts},vers=3.0`], {
+          timeout: 15000,
+        });
+      } catch {
+        // Fallback without forcing SMB 3.0 for older NAS/routers
+        await execFileAsync('mount', ['-t', 'cifs', source, mountpoint, '-o', opts], {
+          timeout: 15000,
+        });
+      }
+      fstabLine = `${source} ${mountpoint} cifs ${opts},_netdev,nofail 0 0`;
+    } else {
+      const exportPath = cleanShare.startsWith('/') ? cleanShare : `/${cleanShare}`;
+      const source = `${cleanHost}:${exportPath}`;
+      await execFileAsync('mount', ['-t', 'nfs', source, mountpoint], { timeout: 15000 });
+      fstabLine = `${source} ${mountpoint} nfs defaults,_netdev,nofail 0 0`;
+    }
+
+    if (persistFstab) {
+      try {
+        const fstab = await fs.readFile('/etc/fstab', 'utf-8');
+        const filtered = fstab
+          .split('\n')
+          .filter((l) => !l.includes(` ${mountpoint} `))
+          .join('\n');
+        await fs.writeFile('/etc/fstab', `${filtered.trimEnd()}\n${fstabLine}\n`, 'utf-8');
+      } catch {
+        // ignore in dev environment
+      }
+    }
+
+    const entry: NetworkMountEntry = {
+      name: cleanName,
+      protocol: cleanProto,
+      host: cleanHost,
+      sharePath: cleanShare,
+      mountpoint,
+      username: cleanUser || undefined,
+      persistFstab: Boolean(persistFstab),
+      mounted: true,
+    };
+
+    const existing = (await readNetworkMounts()).filter((m) => m.name !== cleanName);
+    existing.push(entry);
+    await saveNetworkMounts(existing);
+
+    systemEvents.notify(
+      'success',
+      'Disco di rete montato',
+      `${cleanName} (${cleanProto.toUpperCase()}) montato su ${mountpoint}`
+    );
+
+    res.json({ success: true, mount: entry });
+  } catch (err) {
+    const errMsg =
+      err instanceof Error
+        ? (err as Error & { stderr?: string }).stderr?.trim() || err.message
+        : 'Mount disco di rete fallito';
+    res.status(500).json({ error: errMsg });
+  }
+});
+
+router.delete('/network-mounts/:name', requireAdmin, async (req: Request, res: Response) => {
+  const cleanName = String(req.params.name ?? '').trim();
+  if (!SAFE_LABEL_REGEX.test(cleanName)) {
+    res.status(400).json({ error: 'Nome non valido' });
+    return;
+  }
+
+  const mountpoint = path.join(NETWORK_MOUNTS_DIR, cleanName);
+  const credsFile = path.join(DATA_DIR, '.nas-os', `netcred-${cleanName}`);
+
+  try {
+    await execFileAsync('umount', [mountpoint], { timeout: 10000 }).catch(() =>
+      execFileAsync('umount', ['-l', mountpoint], { timeout: 10000 }).catch(() => {})
+    );
+    await fs.rm(credsFile, { force: true }).catch(() => {});
+
+    try {
+      const fstab = await fs.readFile('/etc/fstab', 'utf-8');
+      const filtered = fstab
+        .split('\n')
+        .filter((l) => !l.includes(` ${mountpoint} `))
+        .join('\n');
+      await fs.writeFile('/etc/fstab', `${filtered.trimEnd()}\n`, 'utf-8');
+    } catch {
+      // ignore
+    }
+
+    const remaining = (await readNetworkMounts()).filter((m) => m.name !== cleanName);
+    await saveNetworkMounts(remaining);
+    res.json({ success: true });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Errore smontaggio disco di rete';
     res.status(500).json({ error: message });
   }
 });

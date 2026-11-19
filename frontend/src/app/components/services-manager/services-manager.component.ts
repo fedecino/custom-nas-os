@@ -459,22 +459,33 @@ import {
                     {{ p.description }}
                   </td>
                   <td class="px-4 py-2.5 whitespace-nowrap text-right">
-                    <div class="inline-flex gap-1.5">
-                      <button
-                        type="button"
-                        (click)="quickPortRule(p.port, p.protocol, 'allow')"
-                        class="rounded bg-emerald-500/15 px-2 py-0.5 text-[10px] text-emerald-300 hover:bg-emerald-500/25"
-                      >
-                        Apri
-                      </button>
-                      <button
-                        type="button"
-                        (click)="quickPortRule(p.port, p.protocol, 'deny')"
-                        class="rounded bg-rose-500/15 px-2 py-0.5 text-[10px] text-rose-300 hover:bg-rose-500/25"
-                      >
-                        Chiudi
-                      </button>
-                    </div>
+                    @if (isPortOpen(p.port, p.protocol)) {
+                      <div class="inline-flex items-center gap-2">
+                        <span class="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium text-emerald-300">
+                          ● Aperta
+                        </span>
+                        <button
+                          type="button"
+                          (click)="quickPortRule(p.port, p.protocol, 'deny')"
+                          class="rounded-lg bg-rose-500/20 px-2.5 py-1 text-[10px] font-semibold text-rose-200 hover:bg-rose-500/35"
+                        >
+                          Chiudi
+                        </button>
+                      </div>
+                    } @else {
+                      <div class="inline-flex items-center gap-2">
+                        <span class="rounded-full bg-rose-500/15 px-2 py-0.5 text-[10px] font-medium text-rose-300">
+                          ● Chiusa
+                        </span>
+                        <button
+                          type="button"
+                          (click)="quickPortRule(p.port, p.protocol, 'allow')"
+                          class="rounded-lg bg-emerald-500/20 px-2.5 py-1 text-[10px] font-semibold text-emerald-200 hover:bg-emerald-500/35"
+                        >
+                          Apri
+                        </button>
+                      </div>
+                    }
                   </td>
                 </tr>
               }
@@ -482,6 +493,21 @@ import {
           </table>
         </div>
       </div>
+
+      <!-- Floating Toast Notification (always visible even when scrolled) -->
+      @if (toast(); as t) {
+        <div
+          class="fixed bottom-5 right-5 z-[90] flex items-center gap-2.5 rounded-2xl border px-4 py-3 text-xs font-medium shadow-2xl backdrop-blur-xl transition-all"
+          [ngClass]="
+            t.ok
+              ? 'border-emerald-500/40 bg-slate-950/95 text-emerald-200'
+              : 'border-rose-500/40 bg-slate-950/95 text-rose-200'
+          "
+        >
+          <span>{{ t.ok ? '✓' : '✕' }}</span>
+          <span>{{ t.message }}</span>
+        </div>
+      }
     </div>
   `,
 })
@@ -499,6 +525,8 @@ export class ServicesManagerComponent implements OnInit {
   sslKeyPath = '';
   feedback = signal<string | null>(null);
   feedbackOk = signal(true);
+  toast = signal<{ message: string; ok: boolean } | null>(null);
+  private toastTimer?: ReturnType<typeof setTimeout>;
   portFilter = '';
 
   proxyPath = '';
@@ -527,12 +555,12 @@ export class ServicesManagerComponent implements OnInit {
 
     this.api.getFirewallStatus().subscribe({
       next: (fw) => this.firewall.set(fw),
-      error: () => {},
+      error: () => { },
     });
 
     this.api.getProxyRoutes().subscribe({
       next: (res) => this.proxyRoutes.set(res.routes),
-      error: () => {},
+      error: () => { },
     });
 
     this.api.getSslConfig().subscribe({
@@ -542,7 +570,7 @@ export class ServicesManagerComponent implements OnInit {
         this.sslCertPath = res.config.certPath;
         this.sslKeyPath = res.config.keyPath;
       },
-      error: () => {},
+      error: () => { },
     });
   }
 
@@ -671,16 +699,42 @@ export class ServicesManagerComponent implements OnInit {
     );
   }
 
+  showToast(message: string, ok = true, durationMs = 1500): void {
+    this.feedbackOk.set(ok);
+    this.feedback.set(message);
+    this.toast.set({ message, ok });
+    if (this.toastTimer) clearTimeout(this.toastTimer);
+    this.toastTimer = setTimeout(() => {
+      this.toast.set(null);
+    }, durationMs);
+  }
+
+  isPortOpen(port: number, protocol: string): boolean {
+    const fw = this.firewall();
+    if (!fw || !fw.installed) return true;
+    const proto = protocol.toLowerCase() === 'udp' ? 'udp' : 'tcp';
+    const portStr = String(port);
+
+    for (const r of fw.rules) {
+      const target = r.to.replace(/\s*\(v6\)\s*/i, '').trim().toLowerCase();
+      const matches = target === `${portStr}/${proto}` || target === portStr;
+      if (matches) {
+        const act = r.action.toUpperCase();
+        if (act.includes('ALLOW')) return true;
+        if (act.includes('DENY') || act.includes('REJECT')) return false;
+      }
+    }
+    return !fw.enabled;
+  }
+
   action(name: string, act: 'start' | 'stop' | 'restart'): void {
     this.api.controlSystemService(name, act).subscribe({
       next: () => {
-        this.feedbackOk.set(true);
-        this.feedback.set(`Servizio "${name}": ${act} completato`);
+        this.showToast(`Servizio "${name}": ${act} completato`, true);
         this.load();
       },
       error: (err) => {
-        this.feedbackOk.set(false);
-        this.feedback.set(err?.error?.error ?? `Errore su "${name}"`);
+        this.showToast(err?.error?.error ?? `Errore su "${name}"`, false, 3000);
       },
     });
   }
@@ -689,16 +743,15 @@ export class ServicesManagerComponent implements OnInit {
     this.api.toggleFirewall(enabled).subscribe({
       next: (fw) => {
         this.firewall.set(fw);
-        this.feedbackOk.set(true);
-        this.feedback.set(
-          fw.enabled
-            ? 'Firewall attivato (porte 80 e 22 aperte)'
-            : 'Firewall disattivato'
-        );
+          this.showToast(
+            fw.enabled
+              ? 'Firewall attivato (porte 80 e 22 aperte)'
+            : 'Firewall disattivato',
+            true
+          );
       },
       error: (err) => {
-        this.feedbackOk.set(false);
-        this.feedback.set(err?.error?.error ?? 'Errore cambio stato firewall');
+        this.showToast(err?.error?.error ?? 'Errore cambio stato firewall', false, 3000);
       },
     });
   }
@@ -707,13 +760,11 @@ export class ServicesManagerComponent implements OnInit {
     this.api.addFirewallRule(this.fwPort, this.fwProtocol, this.fwAction).subscribe({
       next: (fw) => {
         this.firewall.set(fw);
-        this.feedbackOk.set(true);
-        this.feedback.set(`Regola firewall applicata su porta ${this.fwPort}`);
+        this.showToast(`Regola firewall applicata su porta ${this.fwPort}`, true);
         this.fwPort = '';
       },
       error: (err) => {
-        this.feedbackOk.set(false);
-        this.feedback.set(err?.error?.error ?? 'Errore aggiunta regola firewall');
+        this.showToast(err?.error?.error ?? 'Errore aggiunta regola firewall', false, 3000);
       },
     });
   }
@@ -723,14 +774,13 @@ export class ServicesManagerComponent implements OnInit {
     this.api.addFirewallRule(port, proto, act).subscribe({
       next: (fw) => {
         this.firewall.set(fw);
-        this.feedbackOk.set(true);
-        this.feedback.set(
-          `Porta ${port}/${proto} ${act === 'allow' ? 'aperta' : 'chiusa'} nel firewall`
-        );
+        this.showToast(
+            `Porta ${port}/${proto} ${act === 'allow' ? 'aperta' : 'chiusa'} nel firewall`,
+            true
+          );
       },
       error: (err) => {
-        this.feedbackOk.set(false);
-        this.feedback.set(err?.error?.error ?? 'Errore regola firewall');
+        this.showToast(err?.error?.error ?? 'Errore regola firewall', false, 3000);
       },
     });
   }
@@ -739,12 +789,10 @@ export class ServicesManagerComponent implements OnInit {
     this.api.deleteFirewallRule(index).subscribe({
       next: (fw) => {
         this.firewall.set(fw);
-        this.feedbackOk.set(true);
-        this.feedback.set(`Regola #${index} eliminata`);
+        this.showToast(`Regola #${index} eliminata`, true);
       },
       error: (err) => {
-        this.feedbackOk.set(false);
-        this.feedback.set(err?.error?.error ?? 'Errore eliminazione regola');
+        this.showToast(err?.error?.error ?? 'Errore eliminazione regola', false, 3000);
       },
     });
   }

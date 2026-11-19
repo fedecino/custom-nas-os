@@ -11,7 +11,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { forkJoin } from 'rxjs';
-import { ApiService, FileEntry, MountedDisk } from '../../services/api.service';
+import { ApiService, FileEntry, MountedDisk, NetworkMountEntry } from '../../services/api.service';
 import { DialogService } from '../../services/dialog.service';
 
 interface ContextMenuState {
@@ -178,6 +178,48 @@ interface ContextMenuState {
               <span>{{ root.icon }}</span>
               <span class="truncate">{{ root.label }}</span>
             </button>
+          }
+
+          @if (isAdmin()) {
+            <div class="pt-3 mt-2 border-t border-white/10 space-y-1">
+              <div class="flex items-center justify-between px-2 pb-1">
+                <span class="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                  Dischi di Rete
+                </span>
+                <button
+                  type="button"
+                  (click)="openNetworkMountModal()"
+                  class="rounded-md bg-[#38bdf8]/15 px-1.5 py-0.5 text-[10px] font-semibold text-[#38bdf8] hover:bg-[#38bdf8]/25"
+                >
+                  + Monta
+                </button>
+              </div>
+              @for (nm of networkMounts(); track nm.name) {
+                <div class="flex items-center gap-1">
+                  <button
+                    type="button"
+                    (click)="openDir(nm.mountpoint)"
+                    class="flex min-w-0 flex-1 items-center gap-2 rounded-xl px-2.5 py-1.5 text-left text-xs transition"
+                    [ngClass]="
+                      currentPath() === nm.mountpoint
+                        ? 'bg-sky-500/20 text-sky-200 font-medium'
+                        : 'text-slate-300 hover:bg-white/10'
+                    "
+                  >
+                    <span>🌐</span>
+                    <span class="truncate">{{ nm.name }}</span>
+                  </button>
+                  <button
+                    type="button"
+                    (click)="unmountNetworkDrive(nm)"
+                    title="Smonta disco di rete"
+                    class="rounded-lg p-1 text-[11px] text-slate-400 hover:bg-rose-500/20 hover:text-rose-300"
+                  >
+                    ⏏
+                  </button>
+                </div>
+              }
+            </div>
           }
 
           <div class="mt-4 rounded-xl border border-dashed border-white/15 p-3 text-[11px] text-slate-400">
@@ -632,6 +674,126 @@ interface ContextMenuState {
           </div>
         </div>
       }
+
+      <!-- Mount Network Drive Modal (SMB / NFS) -->
+      @if (netMountModalOpen()) {
+        <div
+          class="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm"
+          (click)="netMountModalOpen.set(false)"
+        >
+          <div
+            class="w-full max-w-lg rounded-2xl border border-white/15 bg-[#0f172a]/95 p-5 shadow-2xl space-y-4"
+            (click)="$event.stopPropagation()"
+          >
+            <div class="flex items-start justify-between gap-2">
+              <div>
+                <h3 class="text-sm font-semibold text-white">Monta Disco di Rete (SMB / NFS)</h3>
+                <p class="mt-0.5 text-xs text-slate-400">
+                  Collega una cartella condivisa di un altro NAS, router o PC sotto <span class="font-mono text-[#38bdf8]">/DATA/Network/</span>
+                </p>
+              </div>
+              <button
+                type="button"
+                (click)="netMountModalOpen.set(false)"
+                class="rounded-lg p-1 text-slate-400 hover:bg-white/10 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div>
+                <label class="block text-xs font-medium text-slate-300">Nome Disco</label>
+                <input
+                  type="text"
+                  [(ngModel)]="netMountForm.name"
+                  placeholder="es. NAS-Casa"
+                  class="mt-1 w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2 font-mono text-xs text-white focus:border-[#38bdf8] focus:outline-none"
+                />
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-slate-300">Protocollo</label>
+                <select
+                  [(ngModel)]="netMountForm.protocol"
+                  class="mt-1 w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-xs text-white focus:border-[#38bdf8] focus:outline-none"
+                >
+                  <option value="smb">SMB / CIFS (Windows / Samba / NAS)</option>
+                  <option value="nfs">NFS (Linux / Unix)</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-slate-300">Host o IP Server</label>
+                <input
+                  type="text"
+                  [(ngModel)]="netMountForm.host"
+                  placeholder="es. 192.168.1.50"
+                  class="mt-1 w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2 font-mono text-xs text-white focus:border-[#38bdf8] focus:outline-none"
+                />
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-slate-300">
+                  {{ netMountForm.protocol === 'smb' ? 'Nome Condivisione SMB' : 'Percorso Export NFS' }}
+                </label>
+                <input
+                  type="text"
+                  [(ngModel)]="netMountForm.sharePath"
+                  [placeholder]="netMountForm.protocol === 'smb' ? 'es. Backups' : 'es. /srv/backups'"
+                  class="mt-1 w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2 font-mono text-xs text-white focus:border-[#38bdf8] focus:outline-none"
+                />
+              </div>
+
+              @if (netMountForm.protocol === 'smb') {
+                <div>
+                  <label class="block text-xs font-medium text-slate-300">Username (opzionale per Guest)</label>
+                  <input
+                    type="text"
+                    [(ngModel)]="netMountForm.username"
+                    placeholder="es. admin"
+                    class="mt-1 w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-xs text-white focus:border-[#38bdf8] focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-slate-300">Password</label>
+                  <input
+                    type="password"
+                    [(ngModel)]="netMountForm.password"
+                    class="mt-1 w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-xs text-white focus:border-[#38bdf8] focus:outline-none"
+                  />
+                </div>
+              }
+            </div>
+
+            <label class="flex items-center gap-2 text-xs text-slate-300">
+              <input type="checkbox" [(ngModel)]="netMountForm.persistFstab" class="accent-[#38bdf8]" />
+              <span>Monta automaticamente all'avvio del NAS (/etc/fstab)</span>
+            </label>
+
+            @if (netMountError()) {
+              <div class="rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-200">
+                {{ netMountError() }}
+              </div>
+            }
+
+            <div class="flex justify-end gap-2">
+              <button
+                type="button"
+                (click)="netMountModalOpen.set(false)"
+                class="rounded-xl border border-white/10 px-4 py-2 text-xs text-slate-300 hover:bg-white/5"
+              >
+                Annulla
+              </button>
+              <button
+                type="button"
+                (click)="submitNetworkMount()"
+                [disabled]="mountingNetDrive() || !netMountForm.name.trim() || !netMountForm.host.trim() || !netMountForm.sharePath.trim()"
+                class="rounded-xl bg-[#00ff88] px-4 py-2 text-xs font-semibold text-[#062417] hover:brightness-110 disabled:opacity-50"
+              >
+                {{ mountingNetDrive() ? 'Connessione...' : 'Monta Disco di Rete' }}
+              </button>
+            </div>
+          </div>
+        </div>
+      }
     </div>
   `,
 })
@@ -655,6 +817,27 @@ export class FileManagerComponent implements OnInit {
   parentPath = signal<string | null>('/');
   items = signal<FileEntry[]>([]);
   mountedDisks = signal<MountedDisk[]>([]);
+  networkMounts = signal<NetworkMountEntry[]>([]);
+  netMountModalOpen = signal(false);
+  mountingNetDrive = signal(false);
+  netMountError = signal<string | null>(null);
+  netMountForm: {
+    name: string;
+    protocol: 'smb' | 'nfs';
+    host: string;
+    sharePath: string;
+    username: string;
+    password: string;
+    persistFstab: boolean;
+  } = {
+    name: '',
+    protocol: 'smb',
+    host: '',
+    sharePath: '',
+    username: '',
+    password: '',
+    persistFstab: true,
+  };
   isAdmin = signal(true);
   userHomePath = signal('/DATA');
   allowedRoots = signal<Array<{ label: string; path: string; mode: 'ro' | 'rw' }>>([]);
@@ -956,6 +1139,7 @@ export class FileManagerComponent implements OnInit {
             next: (res) => this.mountedDisks.set(res.mounts),
             error: () => {},
           });
+          this.loadNetworkMounts();
           this.openDir('/DATA');
         } else {
           this.openDir(ctx.homePath);
@@ -1161,6 +1345,62 @@ export class FileManagerComponent implements OnInit {
 
   closePreview(): void {
     this.previewState.set(null);
+  }
+
+  loadNetworkMounts(): void {
+    this.api.getNetworkMounts().subscribe({
+      next: (res) => this.networkMounts.set(res.mounts),
+      error: () => {},
+    });
+  }
+
+  openNetworkMountModal(): void {
+    this.netMountError.set(null);
+    this.netMountModalOpen.set(true);
+  }
+
+  submitNetworkMount(): void {
+    this.mountingNetDrive.set(true);
+    this.netMountError.set(null);
+    this.api.mountNetworkDrive(this.netMountForm).subscribe({
+      next: (res) => {
+        this.mountingNetDrive.set(false);
+        this.netMountModalOpen.set(false);
+        this.feedbackOk.set(true);
+        this.feedback.set(`Disco di rete "${res.mount.name}" montato su ${res.mount.mountpoint}`);
+        this.netMountForm.name = '';
+        this.netMountForm.sharePath = '';
+        this.netMountForm.password = '';
+        this.loadNetworkMounts();
+        this.openDir(res.mount.mountpoint);
+      },
+      error: (err) => {
+        this.mountingNetDrive.set(false);
+        this.netMountError.set(err?.error?.error ?? 'Errore durante il mount del disco di rete');
+      },
+    });
+  }
+
+  async unmountNetworkDrive(nm: NetworkMountEntry): Promise<void> {
+    const ok = await this.dialog.confirm(
+      `Smontare il disco di rete "${nm.name}" (${nm.mountpoint})?`,
+      { title: 'Smonta Disco di Rete', confirmText: 'Smonta', danger: true }
+    );
+    if (!ok) return;
+    this.api.unmountNetworkDrive(nm.name).subscribe({
+      next: () => {
+        this.feedbackOk.set(true);
+        this.feedback.set(`Disco di rete "${nm.name}" smontato`);
+        this.loadNetworkMounts();
+        if (this.currentPath().startsWith(nm.mountpoint)) {
+          this.openDir('/DATA');
+        }
+      },
+      error: (err) => {
+        this.feedbackOk.set(false);
+        this.feedback.set(err?.error?.error ?? 'Errore smontaggio disco di rete');
+      },
+    });
   }
 
   openFilePreview(item: FileEntry): void {

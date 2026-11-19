@@ -48,7 +48,9 @@ exfatprogs
 
 # NAS File Sharing Protocols (SMB, NFS, FTP)
 samba
+cifs-utils
 nfs-kernel-server
+nfs-common
 vsftpd
 
 # Web Server & Runtime

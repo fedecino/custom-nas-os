@@ -72,7 +72,7 @@ import { ApiService, LoginScreenSettings } from '../../services/api.service';
               [(ngModel)]="username"
               name="username"
               autocomplete="username"
-              placeholder="es. fede"
+              placeholder="es. admin"
               class="mt-1.5 w-full rounded-xl border border-white/10 bg-black/40 px-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus:border-sky-400 focus:outline-none"
             />
           </div>
