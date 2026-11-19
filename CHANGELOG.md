@@ -1,3 +1,9 @@
+## [1.10.1](https://github.com/fedecino/custom-nas-os/compare/v1.10.0...v1.10.1) (2026-11-19)
+
+### Bug Fixes
+
+* selezione dischi backup / modifica layout della lista delle porte ([8a9abd9](https://github.com/fedecino/custom-nas-os/commit/8a9abd98c447fe2751c6fe4586b1958ea7a4af94))
+
 ## [1.10.0](https://github.com/fedecino/custom-nas-os/compare/v1.9.1...v1.10.0) (2026-11-19)
 
 ### Features
