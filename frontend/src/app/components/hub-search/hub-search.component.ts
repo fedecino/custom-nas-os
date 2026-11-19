@@ -617,7 +617,7 @@ export class HubSearchComponent implements OnInit {
         this.storeApps.set(res.apps);
         this.storeCategories.set(res.categories);
       },
-      error: () => { },
+      error: () => {},
     });
   }
 
@@ -659,10 +659,10 @@ export class HubSearchComponent implements OnInit {
               this.storeInstallStatus.update((cur) =>
                 cur
                   ? {
-                    ...cur,
-                    title: `✕ Errore installazione ${app.name}: ${ev.message}`,
-                    error: true,
-                  }
+                      ...cur,
+                      title: `✕ Errore installazione ${app.name}: ${ev.message}`,
+                      error: true,
+                    }
                   : cur
               );
             }
@@ -673,10 +673,10 @@ export class HubSearchComponent implements OnInit {
             this.storeInstallStatus.update((cur) =>
               cur
                 ? {
-                  ...cur,
-                  title: `✓ ${app.name} installato e avviato con successo!`,
-                  done: true,
-                }
+                    ...cur,
+                    title: `✓ ${app.name} installato e avviato con successo!`,
+                    done: true,
+                  }
                 : cur
             );
             this.deployed.emit();

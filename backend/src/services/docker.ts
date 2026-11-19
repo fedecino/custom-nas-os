@@ -233,7 +233,7 @@ export async function deployStack(
       });
       onLog(`Saved .env to ${envPath}`, 'info');
     } else {
-      await fs.rm(envPath, { force: true }).catch(() => { });
+      await fs.rm(envPath, { force: true }).catch(() => {});
     }
   }
 
