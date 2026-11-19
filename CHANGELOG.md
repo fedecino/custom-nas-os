@@ -1,3 +1,9 @@
+## [1.10.2](https://github.com/fedecino/custom-nas-os/compare/v1.10.1...v1.10.2) (2026-11-19)
+
+### Bug Fixes
+
+*  creazione dischi ([0a50b10](https://github.com/fedecino/custom-nas-os/commit/0a50b10aa0777a79d25807ce6242b1710b9dc1ec))
+
 ## [1.10.1](https://github.com/fedecino/custom-nas-os/compare/v1.10.0...v1.10.1) (2026-11-19)
 
 ### Bug Fixes
