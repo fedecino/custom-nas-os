@@ -1015,6 +1015,7 @@ export class AppComponent implements OnInit, OnDestroy {
       { id: 'files', label: 'Files (File Manager)', icon: '📁' },
       { id: 'settings', settingsCat: 'storage', label: 'Dischi & Storage', icon: '🖴', adminOnly: true },
       { id: 'settings', settingsCat: 'shares', label: 'Condivisioni (SMB/NFS/FTP)', icon: '🔗', adminOnly: true },
+      { id: 'settings', settingsCat: 'backups', label: 'Backup (Restic)', icon: '💾', adminOnly: true },
       { id: 'settings', settingsCat: 'services', label: 'Servizi, Porte & Firewall', icon: '🔌', adminOnly: true },
       { id: 'settings', settingsCat: 'users', label: 'Utenti & Permessi', icon: '👤', adminOnly: true },
       { id: 'logs', label: 'Log di Sistema', icon: '📜' },

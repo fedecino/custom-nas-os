@@ -247,6 +247,50 @@ export interface SslStatusResponse {
   certExpires: string | null;
 }
 
+export interface BackupRepositoryView {
+  id: string;
+  name: string;
+  type: 'local' | 'sftp' | 's3';
+  url: string;
+  hasPassword: boolean;
+  hasS3Keys: boolean;
+  createdAt: string;
+}
+
+export interface BackupJob {
+  id: string;
+  name: string;
+  repoId: string;
+  sources: string[];
+  excludes: string[];
+  schedule: 'manual' | 'hourly' | 'daily' | 'weekly';
+  scheduleTime: string;
+  keepDaily: number;
+  keepWeekly: number;
+  keepMonthly: number;
+  enabled: boolean;
+  lastRunAt: string | null;
+  lastStatus: 'ok' | 'error' | 'running' | null;
+  lastMessage: string | null;
+}
+
+export interface ResticSnapshot {
+  id: string;
+  short_id: string;
+  time: string;
+  hostname: string;
+  paths: string[];
+  tags?: string[];
+}
+
+export interface BackupStatusResponse {
+  installed: boolean;
+  version: string | null;
+  runningJobId: string | null;
+  repos: BackupRepositoryView[];
+  jobs: BackupJob[];
+}
+
 export interface NetworkInterfaceConfig {
   name: string;
   type: 'ethernet' | 'wifi';
@@ -701,6 +745,75 @@ export class ApiService {
     keyPem?: string;
   }): Observable<{ success: boolean; config: SslConfig }> {
     return this.http.put<{ success: boolean; config: SslConfig }>('/api/settings/ssl', payload);
+  }
+
+  // Restic Backup Management
+  getBackupStatus(): Observable<BackupStatusResponse> {
+    return this.http.get<BackupStatusResponse>('/api/backups/status');
+  }
+
+  installRestic(): Observable<{ success: boolean; installed: boolean; version: string | null }> {
+    return this.http.post<{ success: boolean; installed: boolean; version: string | null }>(
+      '/api/backups/install-restic',
+      {}
+    );
+  }
+
+  createBackupRepo(payload: {
+    name: string;
+    type: 'local' | 'sftp' | 's3';
+    url: string;
+    password: string;
+    s3AccessKey?: string;
+    s3SecretKey?: string;
+  }): Observable<{ success: boolean; repo: BackupRepositoryView }> {
+    return this.http.post<{ success: boolean; repo: BackupRepositoryView }>(
+      '/api/backups/repos',
+      payload
+    );
+  }
+
+  deleteBackupRepo(id: string): Observable<{ success: boolean }> {
+    return this.http.delete<{ success: boolean }>(`/api/backups/repos/${encodeURIComponent(id)}`);
+  }
+
+  getRepoSnapshots(repoId: string): Observable<{ snapshots: ResticSnapshot[] }> {
+    return this.http.get<{ snapshots: ResticSnapshot[] }>(
+      `/api/backups/repos/${encodeURIComponent(repoId)}/snapshots`
+    );
+  }
+
+  checkBackupRepo(repoId: string): Observable<{ success: boolean; output: string }> {
+    return this.http.post<{ success: boolean; output: string }>(
+      `/api/backups/repos/${encodeURIComponent(repoId)}/check`,
+      {}
+    );
+  }
+
+  restoreBackupSnapshot(
+    repoId: string,
+    snapshotId: string,
+    targetDir: string
+  ): Observable<{ success: boolean; targetDir: string; output: string }> {
+    return this.http.post<{ success: boolean; targetDir: string; output: string }>(
+      `/api/backups/repos/${encodeURIComponent(repoId)}/restore`,
+      { snapshotId, targetDir }
+    );
+  }
+
+  saveBackupJob(payload: Partial<BackupJob>): Observable<{ success: boolean; job: BackupJob }> {
+    return this.http.post<{ success: boolean; job: BackupJob }>('/api/backups/jobs', payload);
+  }
+
+  deleteBackupJob(id: string): Observable<{ success: boolean }> {
+    return this.http.delete<{ success: boolean }>(`/api/backups/jobs/${encodeURIComponent(id)}`);
+  }
+
+  runBackupJob(id: string): Observable<{ success: boolean; output: string; job: BackupJob }> {
+    return this.http.post<{ success: boolean; output: string; job: BackupJob }>(
+      `/api/backups/jobs/${encodeURIComponent(id)}/run`,
+      {}
+    );
   }
 
   saveNetworkInterface(

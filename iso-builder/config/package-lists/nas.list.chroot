@@ -14,6 +14,7 @@ gnupg
 jq
 git
 rsync
+restic
 grub-efi-amd64
 grub-pc-bin
 efibootmgr

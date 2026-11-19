@@ -22,6 +22,7 @@ import { StorageManagerComponent } from '../storage-manager/storage-manager.comp
 import { SharesManagerComponent } from '../shares-manager/shares-manager.component';
 import { UsersManagerComponent } from '../users-manager/users-manager.component';
 import { ServicesManagerComponent } from '../services-manager/services-manager.component';
+import { BackupManagerComponent } from '../backup-manager/backup-manager.component';
 
 export type SettingsCategory =
   | 'desktop'
@@ -31,6 +32,7 @@ export type SettingsCategory =
   | 'users'
   | 'services'
   | 'network'
+  | 'backups'
   | 'ai'
   | 'updates';
 
@@ -44,6 +46,7 @@ export type SettingsCategory =
     SharesManagerComponent,
     UsersManagerComponent,
     ServicesManagerComponent,
+    BackupManagerComponent,
   ],
   template: `
     @if (!isAdmin) {
@@ -257,6 +260,11 @@ export type SettingsCategory =
         <!-- CATEGORY: Servizi, Porte & Firewall -->
         @if (activeCategory() === 'services') {
           <app-services-manager />
+        }
+
+        <!-- CATEGORY: Backup (Restic) -->
+        @if (activeCategory() === 'backups') {
+          <app-backup-manager />
         }
 
         <!-- CATEGORY 3: Rete & Sistema -->
@@ -811,6 +819,7 @@ export class SettingsAppComponent implements OnInit {
       { id: 'users', label: 'Utenti & Permessi', subtitle: 'Account & Password', icon: '👤' },
       { id: 'services', label: 'Servizi & Firewall', subtitle: 'Porte, Nginx & UFW', icon: '🔌' },
       { id: 'network', label: 'Rete & Hostname', subtitle: 'IP & Interfacce', icon: '🌐' },
+      { id: 'backups', label: 'Backup (Restic)', subtitle: 'Snapshot & Ripristino', icon: '💾' },
       { id: 'ai', label: 'Assistente AI', subtitle: 'Cloud o LLM Locale', icon: '🤖' },
       { id: 'updates', label: 'Aggiornamenti', subtitle: 'SiloOs & Debian', icon: '🔄' },
     ];
