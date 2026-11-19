@@ -1,3 +1,14 @@
+## [1.11.0](https://github.com/fedecino/custom-nas-os/compare/v1.10.2...v1.11.0) (2026-11-19)
+
+### Features
+
+* aggiunto la possibilita' di inserire anche i .env ([0176b93](https://github.com/fedecino/custom-nas-os/commit/0176b9334eae81f197aef947b27f5d9add1986ab))
+* inserito il .env per i docker ([f715a32](https://github.com/fedecino/custom-nas-os/commit/f715a32ec2f8c71375ae9d29a7016cb399528d02))
+
+### Bug Fixes
+
+* ai textarea e porta delle applicazioni ([2009e44](https://github.com/fedecino/custom-nas-os/commit/2009e44bad10b1ebbe74136de18395bdd8ff137a))
+
 ## [1.10.2](https://github.com/fedecino/custom-nas-os/compare/v1.10.1...v1.10.2) (2026-11-19)
 
 ### Bug Fixes
