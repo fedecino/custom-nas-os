@@ -1,3 +1,10 @@
+## [1.10.0](https://github.com/fedecino/custom-nas-os/compare/v1.9.1...v1.10.0) (2026-11-19)
+
+### Features
+
+* aggiunto il copia/incolla nel file manager integrato ([175c3c3](https://github.com/fedecino/custom-nas-os/commit/175c3c348dfde57a1c04f23c8096c755d056b97c))
+* implementazione sistema di backup ([0148363](https://github.com/fedecino/custom-nas-os/commit/014836386b9d307d4658ca42c01767270eb92a0d))
+
 ## [1.9.1](https://github.com/fedecino/custom-nas-os/compare/v1.9.0...v1.9.1) (2026-11-18)
 
 ### Bug Fixes
