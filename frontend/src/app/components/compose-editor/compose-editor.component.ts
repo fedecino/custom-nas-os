@@ -166,15 +166,65 @@ export interface LogLine {
 
         <!-- Split View: YAML Editor + Deploy Console -->
         <div class="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-2">
-          <!-- Left: CodeMirror Editor -->
+          <!-- Left: CodeMirror Editor + .env Tab -->
           <div class="flex min-h-0 flex-col border-b border-slate-800 lg:border-b-0 lg:border-r">
             <div
-              class="flex items-center justify-between border-b border-slate-800 bg-slate-950/60 px-4 py-2 text-[11px] font-medium uppercase tracking-wider text-slate-400"
+              class="flex items-center justify-between border-b border-slate-800 bg-slate-950/60 px-3 py-1.5 text-[11px]"
             >
-              <span>docker-compose.yml (modificabile)</span>
-              <span class="text-slate-500">YAML · Syntax Highlight</span>
+              <div class="flex items-center gap-1">
+                <button
+                  type="button"
+                  (click)="editorTab.set('yaml')"
+                  class="rounded-lg px-2.5 py-1 font-mono font-medium transition"
+                  [ngClass]="
+                    editorTab() === 'yaml'
+                      ? 'bg-[#38bdf8]/20 text-[#38bdf8]'
+                      : 'text-slate-400 hover:text-white'
+                  "
+                >
+                  docker-compose.yml
+                </button>
+                <button
+                  type="button"
+                  (click)="editorTab.set('env')"
+                  class="flex items-center gap-1.5 rounded-lg px-2.5 py-1 font-mono font-medium transition"
+                  [ngClass]="
+                    editorTab() === 'env'
+                      ? 'bg-[#38bdf8]/20 text-[#38bdf8]'
+                      : 'text-slate-400 hover:text-white'
+                  "
+                >
+                  <span>.env</span>
+                  @if (envContent.trim()) {
+                    <span class="h-1.5 w-1.5 rounded-full bg-emerald-400"></span>
+                  }
+                </button>
+              </div>
+
+              @if (editorTab() === 'env') {
+                <label class="cursor-pointer rounded-lg border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] text-slate-300 hover:bg-white/10">
+                  📂 Carica .env
+                  <input type="file" accept=".env,text/plain" class="hidden" (change)="onEnvFileSelected($event)" />
+                </label>
+              } @else {
+                <span class="text-slate-500">YAML · Syntax Highlight</span>
+              }
             </div>
-            <div #editorHost class="min-h-[260px] flex-1 overflow-auto bg-[#282c34]"></div>
+
+            <div
+              #editorHost
+              [class.hidden]="editorTab() !== 'yaml'"
+              class="min-h-[260px] flex-1 overflow-auto bg-[#282c34]"
+            ></div>
+
+            @if (editorTab() === 'env') {
+              <textarea
+                [(ngModel)]="envContent"
+                spellcheck="false"
+                placeholder="# Variabili d'ambiente (.env) salvate accanto a docker-compose.yml&#10;DB_PASSWORD=changeme&#10;TZ=Europe/Rome"
+                class="min-h-[260px] flex-1 resize-none bg-[#1e222a] p-4 font-mono text-xs leading-relaxed text-slate-200 placeholder-slate-500 focus:outline-none"
+              ></textarea>
+            }
           </div>
 
           <!-- Right: Live SSE Deploy Console -->
@@ -225,10 +275,14 @@ export class ComposeEditorComponent implements AfterViewInit, OnDestroy {
   @Input() inspected: InspectedImage | null = null;
   @Input() stackName = '';
   @Input() initialYaml = '';
+  @Input() initialEnv = '';
   @Input() lockStackName = false;
 
   @Output() close = new EventEmitter<void>();
   @Output() deployed = new EventEmitter<string>();
+
+  editorTab = signal<'yaml' | 'env'>('yaml');
+  envContent = '';
 
   @ViewChild('editorHost', { static: true }) editorHost!: ElementRef<HTMLDivElement>;
   @ViewChild('logContainer') logContainer?: ElementRef<HTMLDivElement>;
@@ -244,6 +298,7 @@ export class ComposeEditorComponent implements AfterViewInit, OnDestroy {
   private abortController?: AbortController;
 
   ngAfterViewInit(): void {
+    this.envContent = this.initialEnv || '';
     const startDoc = this.initialYaml || this.inspected?.composeYaml || '';
     const state = EditorState.create({
       doc: startDoc,
@@ -343,7 +398,8 @@ export class ComposeEditorComponent implements AfterViewInit, OnDestroy {
             }
           }
         },
-        this.abortController.signal
+        this.abortController.signal,
+        this.envContent
       );
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Errore di rete durante il deploy';
@@ -352,6 +408,20 @@ export class ComposeEditorComponent implements AfterViewInit, OnDestroy {
     } finally {
       this.deploying.set(false);
     }
+  }
+
+  onEnvFileSelected(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        this.envContent = reader.result;
+      }
+    };
+    reader.readAsText(file);
+    input.value = '';
   }
 
   private appendLog(text: string, stream: 'stdout' | 'stderr' | 'info'): void {

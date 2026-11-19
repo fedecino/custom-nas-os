@@ -835,6 +835,7 @@ type ActiveWindow =
           [inspected]="ed.inspected"
           [stackName]="ed.stackName"
           [initialYaml]="ed.initialYaml"
+          [initialEnv]="ed.initialEnv ?? ''"
           [lockStackName]="ed.lockStackName"
           (close)="editorState.set(null)"
           (deployed)="onStackDeployed()"
@@ -1049,6 +1050,7 @@ export class AppComponent implements OnInit, OnDestroy {
       inspected: InspectedImage | null;
       stackName: string;
       initialYaml: string;
+      initialEnv?: string;
       lockStackName: boolean;
     } | null>(null);
 
@@ -1423,12 +1425,14 @@ openInspectedEditor(inspected: InspectedImage): void {
 openCustomComposeEditor(event: {
   stackName: string;
   yamlContent: string;
+  envContent?: string;
   lockStackName?: boolean;
 }): void {
   this.editorState.set({
     inspected: null,
     stackName: event.stackName,
     initialYaml: event.yamlContent,
+    initialEnv: event.envContent ?? '',
     lockStackName: Boolean(event.lockStackName),
   });
 }
@@ -1441,6 +1445,7 @@ openExistingStackEditor(stackName: string): void {
         inspected: null,
         stackName: res.stackName,
         initialYaml: res.yamlContent,
+        initialEnv: res.envContent ?? '',
         lockStackName: true,
       });
     },

@@ -198,20 +198,45 @@ export async function getStackCompose(stackName: string): Promise<string> {
   return fs.readFile(composePath, 'utf-8');
 }
 
+export async function getStackEnv(stackName: string): Promise<string> {
+  const validName = validateStackName(stackName);
+  const envPath = path.join(STACKS_DIR, validName, '.env');
+  try {
+    return await fs.readFile(envPath, 'utf-8');
+  } catch {
+    return '';
+  }
+}
+
 export async function deployStack(
   stackName: string,
   yamlContent: string,
-  onLog: (message: string, stream: 'stdout' | 'stderr' | 'info') => void
+  onLog: (message: string, stream: 'stdout' | 'stderr' | 'info') => void,
+  envContent?: string
 ): Promise<number> {
   const validName = validateStackName(stackName);
   validateComposeYaml(yamlContent);
 
   const stackDir = path.join(STACKS_DIR, validName);
   const composePath = path.join(stackDir, 'docker-compose.yml');
+  const envPath = path.join(stackDir, '.env');
 
   await fs.mkdir(stackDir, { recursive: true });
   await fs.writeFile(composePath, yamlContent, 'utf-8');
   onLog(`Saved docker-compose.yml to ${composePath}`, 'info');
+
+  if (typeof envContent === 'string') {
+    if (envContent.trim().length > 0) {
+      await fs.writeFile(envPath, envContent.trimEnd() + '\n', {
+        encoding: 'utf-8',
+        mode: 0o600,
+      });
+      onLog(`Saved .env to ${envPath}`, 'info');
+    } else {
+      await fs.rm(envPath, { force: true }).catch(() => { });
+    }
+  }
+
   onLog(`Running: docker compose -p ${validName} up -d`, 'info');
 
   return new Promise((resolve, reject) => {

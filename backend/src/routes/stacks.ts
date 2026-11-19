@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import {
   deployStack,
   getStackCompose,
+  getStackEnv,
   listStacks,
   runStackAction,
   streamStackLogs,
@@ -24,8 +25,11 @@ router.get('/', async (_req: Request, res: Response) => {
 router.get('/:name/compose', async (req: Request, res: Response) => {
   try {
     const stackName = String(req.params.name ?? '');
-    const yamlContent = await getStackCompose(stackName);
-    res.json({ stackName, yamlContent });
+    const [yamlContent, envContent] = await Promise.all([
+      getStackCompose(stackName),
+      getStackEnv(stackName),
+    ]);
+    res.json({ stackName, yamlContent, envContent });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Failed to read compose file';
     res.status(404).json({ error: message });
@@ -44,9 +48,10 @@ router.post('/validate', (req: Request, res: Response) => {
 });
 
 router.post('/deploy', async (req: Request, res: Response) => {
-  const { stackName, yamlContent } = req.body as {
+  const { stackName, yamlContent, envContent } = req.body as {
     stackName?: string;
     yamlContent?: string;
+    envContent?: string;
   };
 
   try {
@@ -76,7 +81,8 @@ router.post('/deploy', async (req: Request, res: Response) => {
       yamlContent!,
       (message, stream) => {
         sendEvent('log', { message, stream, timestamp: new Date().toISOString() });
-      }
+      },
+      envContent
     );
 
     sendEvent('done', {

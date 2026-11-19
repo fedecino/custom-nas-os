@@ -333,9 +333,30 @@ type AppStoreTab = 'store' | 'compose' | 'dockerhub';
 
           <textarea
             [(ngModel)]="customComposeYaml"
-            rows="13"
+            rows="11"
             spellcheck="false"
             class="w-full rounded-xl border border-white/10 bg-black/50 p-3.5 font-mono text-xs leading-relaxed text-slate-200 focus:border-[#38bdf8] focus:outline-none"
+          ></textarea>
+
+          <div class="flex flex-wrap items-center justify-between gap-2 pt-1">
+            <label class="text-xs font-medium text-slate-300">File .env (opzionale)</label>
+            <label class="cursor-pointer rounded-xl border border-white/15 bg-white/5 px-3 py-1.5 text-xs text-slate-200 hover:bg-white/10">
+              📂 Carica file .env
+              <input
+                type="file"
+                accept=".env,text/plain"
+                class="hidden"
+                (change)="onEnvFileSelected($event)"
+              />
+            </label>
+          </div>
+
+          <textarea
+            [(ngModel)]="customEnvContent"
+            rows="4"
+            spellcheck="false"
+            placeholder="# Opzionale: variabili .env salvate accanto a docker-compose.yml&#10;DB_PASSWORD=changeme&#10;TZ=Europe/Rome"
+            class="w-full rounded-xl border border-white/10 bg-black/40 p-3 font-mono text-xs leading-relaxed text-slate-200 placeholder-slate-500 focus:border-[#38bdf8] focus:outline-none"
           ></textarea>
 
           @if (customError()) {
@@ -553,6 +574,7 @@ export class HubSearchComponent implements OnInit {
   @Output() openCustomCompose = new EventEmitter<{
     stackName: string;
     yamlContent: string;
+    envContent?: string;
     lockStackName?: boolean;
   }>();
   @Output() deployed = new EventEmitter<void>();
@@ -574,6 +596,7 @@ export class HubSearchComponent implements OnInit {
 
   // Custom Compose state
   customStackName = 'mio-stack';
+  customEnvContent = '';
   importUrl = '';
   importingUrl = signal(false);
   customError = signal<string | null>(null);
@@ -594,7 +617,7 @@ export class HubSearchComponent implements OnInit {
         this.storeApps.set(res.apps);
         this.storeCategories.set(res.categories);
       },
-      error: () => {},
+      error: () => { },
     });
   }
 
@@ -636,10 +659,10 @@ export class HubSearchComponent implements OnInit {
               this.storeInstallStatus.update((cur) =>
                 cur
                   ? {
-                      ...cur,
-                      title: `✕ Errore installazione ${app.name}: ${ev.message}`,
-                      error: true,
-                    }
+                    ...cur,
+                    title: `✕ Errore installazione ${app.name}: ${ev.message}`,
+                    error: true,
+                  }
                   : cur
               );
             }
@@ -650,10 +673,10 @@ export class HubSearchComponent implements OnInit {
             this.storeInstallStatus.update((cur) =>
               cur
                 ? {
-                    ...cur,
-                    title: `✓ ${app.name} installato e avviato con successo!`,
-                    done: true,
-                  }
+                  ...cur,
+                  title: `✓ ${app.name} installato e avviato con successo!`,
+                  done: true,
+                }
                 : cur
             );
             this.deployed.emit();
@@ -738,6 +761,20 @@ export class HubSearchComponent implements OnInit {
     input.value = '';
   }
 
+  onEnvFileSelected(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        this.customEnvContent = reader.result;
+      }
+    };
+    reader.readAsText(file);
+    input.value = '';
+  }
+
   openCustomInEditor(): void {
     const name = this.customStackName
       .trim()
@@ -747,6 +784,7 @@ export class HubSearchComponent implements OnInit {
     this.openCustomCompose.emit({
       stackName: name,
       yamlContent: this.customComposeYaml,
+      envContent: this.customEnvContent,
       lockStackName: false,
     });
   }

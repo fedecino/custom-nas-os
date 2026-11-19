@@ -478,8 +478,10 @@ export class ApiService {
     return this.http.get<StacksResponse>('/api/stacks');
   }
 
-  getStackCompose(name: string): Observable<{ stackName: string; yamlContent: string }> {
-    return this.http.get<{ stackName: string; yamlContent: string }>(
+  getStackCompose(
+    name: string
+  ): Observable<{ stackName: string; yamlContent: string; envContent?: string }> {
+    return this.http.get<{ stackName: string; yamlContent: string; envContent?: string }>(
       `/api/stacks/${encodeURIComponent(name)}/compose`
     );
   }
@@ -504,12 +506,13 @@ export class ApiService {
     stackName: string,
     yamlContent: string,
     onEvent: (event: DeploySseEvent) => void,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    envContent?: string
   ): Promise<void> {
     const response = await fetch('/api/stacks/deploy', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ stackName, yamlContent }),
+      body: JSON.stringify({ stackName, yamlContent, envContent }),
       signal,
     });
 

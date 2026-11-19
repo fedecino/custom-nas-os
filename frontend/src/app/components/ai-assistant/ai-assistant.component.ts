@@ -300,18 +300,18 @@ export class AiAssistantComponent implements OnInit, OnDestroy {
     this.send();
   }
 
-  stopGeneration(): void {
-    this.abortController?.abort();
-    this.sending.set(false);
-    this.messages.update((m) => [
-      ...m,
-      { role: 'assistant', content: '[Richiesta interrotta dall\'utente]' },
-    ]);
-  }
+    stopGeneration(): void {
+      this.abortController?.abort();
+      this.sending.set(false);
+      this.messages.update((m) => [
+        ...m,
+        { role: 'assistant', content: '[Richiesta interrotta dall\'utente]' },
+      ]);
+    }
 
-  async send(): Promise<void> {
-    const text = this.inputText.trim();
-    if (!text || this.sending()) return;
+  async send(): Promise < void> {
+      const text = this.inputText.trim();
+      if(!text || this.sending()) return;
 
     this.inputText = '';
     this.error.set(null);
