@@ -676,13 +676,13 @@ type ActiveWindow =
                       (click)="$event.stopPropagation()"
                       class="absolute right-2 top-9 z-30 w-36 rounded-xl border border-white/15 bg-slate-900/95 p-1.5 text-left text-xs shadow-2xl backdrop-blur-xl"
                     >
-                      @if (getWebPort(stack); as port) {
+                      @if (getWebEndpoint(stack); as ep) {
                         <a
-                          [href]="getAppUrl(port)"
+                          [href]="getAppUrl(ep)"
                           target="_blank"
                           class="block rounded-lg px-2.5 py-1.5 text-sky-300 hover:bg-white/10"
                         >
-                          Apri (:{{ port }}) ↗
+                          Apri ({{ ep.protocol }} :{{ ep.port }}) ↗
                         </a>
                       }
                       @if (stack.status !== 'running') {
@@ -1340,33 +1340,54 @@ getStackDescription(stack: StackInfo): string {
   return describeDockerApp(stack.name, stack.containers[0]?.image);
 }
 
-getWebPort(stack: StackInfo): string | null {
-  const tcpPorts: string[] = [];
+getWebEndpoint(stack: StackInfo): { port: string; protocol: 'https' | 'http' } | null {
+  const mappings: Array<{ hostPort: string; containerPort: string }> = [];
   for (const c of stack.containers) {
     if (!c.ports) continue;
     for (const m of c.ports.matchAll(/:(\d+)->(\d+)\/tcp/g)) {
-      if (m[1]) tcpPorts.push(m[1]);
+      if (m[1] && m[2]) mappings.push({ hostPort: m[1], containerPort: m[2] });
     }
-    if (tcpPorts.length === 0) {
+    if (mappings.length === 0) {
       for (const m of c.ports.matchAll(/:(\d+)->/g)) {
-        if (m[1]) tcpPorts.push(m[1]);
+        if (m[1]) mappings.push({ hostPort: m[1], containerPort: m[1] });
       }
     }
   }
-  if (tcpPorts.length === 0) return null;
+  if (mappings.length === 0) return null;
 
-  const preferred = ['8096', '80', '8080', '9000', '3000', '5000', '8000', '443', '8443'];
-  return tcpPorts.find((p) => preferred.includes(p)) ?? tcpPorts[0];
+  const httpsPorts = new Set(['443', '8443', '9443', '8920', '7443', '4443']);
+  const isHttpsMapping = (m: { hostPort: string; containerPort: string }) =>
+    httpsPorts.has(m.containerPort) || httpsPorts.has(m.hostPort);
+
+  const httpsMatch = mappings.find(isHttpsMapping);
+  const httpMappings = mappings.filter((m) => !isHttpsMapping(m));
+  const preferredHttp = ['8096', '80', '8080', '9000', '3000', '5000', '8000', '2283', '8123'];
+  const bestHttp =
+    httpMappings.find((m) => preferredHttp.includes(m.hostPort) || preferredHttp.includes(m.containerPort)) ??
+    httpMappings[0];
+
+  if (window.location.protocol === 'https:') {
+    if (httpsMatch) return { port: httpsMatch.hostPort, protocol: 'https' };
+    if (bestHttp) return { port: bestHttp.hostPort, protocol: 'http' };
+  } else {
+    if (bestHttp) return { port: bestHttp.hostPort, protocol: 'http' };
+    if (httpsMatch) return { port: httpsMatch.hostPort, protocol: 'https' };
+  }
+  return { port: mappings[0].hostPort, protocol: 'http' };
 }
 
-getAppUrl(port: string): string {
-  return `${window.location.protocol}//${window.location.hostname}:${port}`;
+getWebPort(stack: StackInfo): string | null {
+  return this.getWebEndpoint(stack)?.port ?? null;
+}
+
+getAppUrl(ep: { port: string; protocol: 'https' | 'http' }): string {
+  return `${ep.protocol}://${window.location.hostname}:${ep.port}`;
 }
 
 openStackApp(stack: StackInfo): void {
-  const port = this.getWebPort(stack);
-  if(port) {
-    window.open(this.getAppUrl(port), '_blank', 'noopener');
+  const ep = this.getWebEndpoint(stack);
+  if (ep) {
+    window.open(this.getAppUrl(ep), '_blank', 'noopener');
   } else {
     this.toggleStackMenu(stack.name);
   }

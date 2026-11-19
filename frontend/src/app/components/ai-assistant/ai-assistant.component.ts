@@ -176,20 +176,23 @@ import {
             }
 
             <!-- Input + Send / Stop -->
-            <form (ngSubmit)="send()" class="flex gap-2.5">
-              <input
-                type="text"
+            <form (ngSubmit)="send()" class="flex items-end gap-2.5">
+              <textarea
+                #chatTextarea
+                rows="1"
                 [(ngModel)]="inputText"
                 name="inputText"
                 [disabled]="sending()"
-                placeholder="Scrivi cosa vuoi fare sul NAS..."
-                class="flex-1 rounded-xl border border-white/10 bg-black/35 px-4 py-2.5 text-xs text-white placeholder-slate-500 focus:border-sky-400 focus:outline-none"
-              />
+                (input)="autoResizeTextarea(chatTextarea)"
+                (keydown)="onInputKeyDown($event, chatTextarea)"
+                placeholder="Scrivi cosa vuoi fare sul NAS... (Invio per inviare, Shift+Invio per andare a capo)"
+                class="max-h-40 min-h-[40px] flex-1 resize-none overflow-y-auto rounded-xl border border-white/10 bg-black/35 px-4 py-2.5 text-xs leading-relaxed text-white placeholder-slate-500 focus:border-sky-400 focus:outline-none"
+              ></textarea>
               @if (sending()) {
                 <button
                   type="button"
                   (click)="stopGeneration()"
-                  class="rounded-xl bg-rose-500 px-5 py-2.5 text-xs font-semibold text-white hover:bg-rose-400"
+                  class="shrink-0 rounded-xl bg-rose-500 px-5 py-2.5 text-xs font-semibold text-white hover:bg-rose-400"
                 >
                   ■ Stop
                 </button>
@@ -197,7 +200,7 @@ import {
                 <button
                   type="submit"
                   [disabled]="!inputText.trim()"
-                  class="rounded-xl bg-[#38bdf8] px-5 py-2.5 text-xs font-semibold text-[#090e1a] hover:brightness-110 disabled:opacity-50"
+                  class="shrink-0 rounded-xl bg-[#38bdf8] px-5 py-2.5 text-xs font-semibold text-[#090e1a] hover:brightness-110 disabled:opacity-50"
                 >
                   Invia
                 </button>
@@ -240,6 +243,23 @@ export class AiAssistantComponent implements OnInit, OnDestroy {
     this.abortController?.abort();
   }
 
+  autoResizeTextarea(el: HTMLTextAreaElement): void {
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+  }
+
+  onInputKeyDown(event: KeyboardEvent, el: HTMLTextAreaElement): void {
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      if (!this.sending() && this.inputText.trim()) {
+        this.send();
+        setTimeout(() => {
+          el.style.height = 'auto';
+        }, 0);
+      }
+    }
+  }
+
   loadHistory(): void {
     this.api.getAiHistory().subscribe({
       next: (res) => this.historyChats.set(res.chats),
@@ -280,18 +300,18 @@ export class AiAssistantComponent implements OnInit, OnDestroy {
     this.send();
   }
 
-    stopGeneration(): void {
-      this.abortController?.abort();
-      this.sending.set(false);
-      this.messages.update((m) => [
-        ...m,
-        { role: 'assistant', content: '[Richiesta interrotta dall\'utente]' },
-      ]);
-    }
+  stopGeneration(): void {
+    this.abortController?.abort();
+    this.sending.set(false);
+    this.messages.update((m) => [
+      ...m,
+      { role: 'assistant', content: '[Richiesta interrotta dall\'utente]' },
+    ]);
+  }
 
-  async send(): Promise < void> {
-      const text = this.inputText.trim();
-      if(!text || this.sending()) return;
+  async send(): Promise<void> {
+    const text = this.inputText.trim();
+    if (!text || this.sending()) return;
 
     this.inputText = '';
     this.error.set(null);
