@@ -213,12 +213,13 @@ router.post('/unmount', async (req: Request, res: Response) => {
   }
 });
 
-router.post('/format', async (req: Request, res: Response) => {
-  const { device, fsType, label, confirm } = req.body as {
+router.post('/format', requireAdmin, async (req: Request, res: Response) => {
+  const { device, fsType, label, confirm, wholeDisk } = req.body as {
     device?: string;
     fsType?: string;
     label?: string;
     confirm?: boolean;
+    wholeDisk?: boolean;
   };
 
   if (!confirm) {
@@ -237,18 +238,82 @@ router.post('/format', async (req: Request, res: Response) => {
   }
 
   try {
+    let targetDev = device;
+
+    if (wholeDisk) {
+      // Safety check: refuse to wipe any disk containing OS / system mounts
+      const { stdout: lsblkRaw } = await execFileAsync(
+        'lsblk',
+        ['-J', '-o', 'NAME,TYPE,MOUNTPOINT', device],
+        { timeout: 5000 }
+      );
+      const parsed = JSON.parse(lsblkRaw) as {
+        blockdevices?: Array<{
+          name: string;
+          type: string;
+          mountpoint?: string | null;
+          children?: Array<{ name: string; mountpoint?: string | null }>;
+        }>;
+      };
+      const diskInfo = parsed.blockdevices?.[0];
+      if (!diskInfo || diskInfo.type !== 'disk') {
+        res.status(400).json({ error: `${device} non è un disco fisico intero` });
+        return;
+      }
+
+      const protectedMounts = new Set(['/', '/boot', '/boot/efi', '[SWAP]']);
+      const allMounts: Array<{ dev: string; mp: string }> = [];
+      if (diskInfo.mountpoint) {
+        allMounts.push({ dev: `/dev/${diskInfo.name}`, mp: diskInfo.mountpoint });
+      }
+      for (const ch of diskInfo.children ?? []) {
+        if (ch.mountpoint) {
+          allMounts.push({ dev: `/dev/${ch.name}`, mp: ch.mountpoint });
+        }
+      }
+
+      for (const m of allMounts) {
+        if (protectedMounts.has(m.mp) || m.mp.startsWith('/boot')) {
+          res.status(403).json({
+            error: `Impossibile formattare il disco di sistema (${m.mp})`,
+          });
+          return;
+        }
+      }
+
+      // Unmount any non-system mounted partitions on this disk first
+      for (const m of allMounts) {
+        await execFileAsync('umount', [m.mp], { timeout: 10000 });
+      }
+
+      // Wipe partition table and create a single GPT partition spanning 100% of disk
+      await execFileAsync('wipefs', ['-a', device], { timeout: 15000 }).catch(() => {});
+      await execFileAsync('parted', ['-s', device, 'mklabel', 'gpt'], { timeout: 15000 });
+      await execFileAsync(
+        'parted',
+        ['-s', '-a', 'optimal', device, 'mkpart', 'primary', '0%', '100%'],
+        { timeout: 15000 }
+      );
+      await execFileAsync('partprobe', [device], { timeout: 10000 }).catch(() => {});
+      await execFileAsync('udevadm', ['settle', '--timeout=5'], { timeout: 8000 }).catch(() => {});
+
+      // Resolve partition device name (/dev/sdX1 or /dev/nvme0n1p1)
+      const partSuffix = /\d$/.test(device) ? 'p1' : '1';
+      targetDev = `${device}${partSuffix}`;
+    }
+
     const args = ['-F'];
     if (fsType === 'xfs') args[0] = '-f';
     if (fsType === 'btrfs') args[0] = '-f';
     if (label && SAFE_LABEL_REGEX.test(label)) {
       args.push('-L', label);
     }
-    args.push(device);
+    args.push(targetDev);
 
     const { stdout, stderr } = await execFileAsync(`mkfs.${fsType}`, args, {
-      timeout: 60000,
+      timeout: 120000,
     });
-    res.json({ success: true, device, fsType, stdout, stderr });
+    res.json({ success: true, device: targetDev, wholeDisk: Boolean(wholeDisk), fsType, stdout, stderr });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Format failed';
     res.status(500).json({ error: message });

@@ -628,12 +628,14 @@ export class ApiService {
   formatDisk(
     device: string,
     fsType: string,
-    label: string
-  ): Observable<{ success: boolean }> {
-    return this.http.post<{ success: boolean }>('/api/storage/format', {
+    label: string,
+    wholeDisk = false
+  ): Observable<{ success: boolean; device?: string }> {
+    return this.http.post<{ success: boolean; device?: string }>('/api/storage/format', {
       device,
       fsType,
       label,
+      wholeDisk,
       confirm: true,
     });
   }

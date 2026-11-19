@@ -206,20 +206,21 @@ import {
                 </p>
               </div>
               <div class="flex flex-wrap items-center gap-2">
-                @if (!disk.children?.length && !disk.mountpoint) {
-                  @if (disk.fstype) {
-                    <button
-                      (click)="openMount('/dev/' + disk.name, disk.label || disk.name)"
-                      class="rounded-lg bg-emerald-500/15 px-2.5 py-1 text-[11px] font-medium text-emerald-300 hover:bg-emerald-500/25"
-                    >
-                      Monta (senza formattare)
-                    </button>
-                  }
+                @if (!disk.children?.length && !disk.mountpoint && disk.fstype) {
                   <button
-                    (click)="openFormat('/dev/' + disk.name)"
-                    class="rounded-lg bg-amber-500/15 px-2.5 py-1 text-[11px] font-medium text-amber-300 hover:bg-amber-500/25"
+                    (click)="openMount('/dev/' + disk.name, disk.label || disk.name)"
+                    class="rounded-lg bg-emerald-500/15 px-2.5 py-1 text-[11px] font-medium text-emerald-300 hover:bg-emerald-500/25"
                   >
-                    Formatta
+                    Monta (senza formattare)
+                  </button>
+                }
+                @if (!isSystemDisk(disk)) {
+                  <button
+                    (click)="openFormat('/dev/' + disk.name, true)"
+                    class="rounded-lg bg-amber-500/15 px-2.5 py-1 text-[11px] font-medium text-amber-300 hover:bg-amber-500/25"
+                    title="Cancella tutte le partizioni e crea un'unica partizione sul 100% del disco"
+                  >
+                    Formatta Intero Disco (100%)
                   </button>
                 }
                 <button
@@ -286,8 +287,17 @@ import {
       @if (formatTarget(); as dev) {
         <div class="rounded-2xl border border-amber-500/30 bg-amber-950/20 p-4 space-y-3">
           <h4 class="text-sm font-semibold text-amber-300">
-            Formatta {{ dev }} (ATTENZIONE: cancella tutti i dati!)
+            @if (formatWholeDisk()) {
+              Formatta INTERO DISCO {{ dev }} (elimina tutte le partizioni e usa il 100% della capacità!)
+            } @else {
+              Formatta partizione {{ dev }} (ATTENZIONE: cancella tutti i dati!)
+            }
           </h4>
+          @if (formatWholeDisk()) {
+            <p class="text-xs text-amber-200/80">
+              Verrà creata una nuova tabella GPT con un'unica partizione sull'intera capacità del disco, smontando prima eventuali partizioni esistenti.
+            </p>
+          }
           <div class="flex flex-wrap items-center gap-3">
             <select
               [(ngModel)]="formatFs"
@@ -356,6 +366,7 @@ export class StorageManagerComponent implements OnInit {
   mountPersistFstab = true;
 
   formatTarget = signal<string | null>(null);
+  formatWholeDisk = signal(false);
   formatFs = 'ext4';
   formatLabel = '';
 
@@ -488,19 +499,33 @@ export class StorageManagerComponent implements OnInit {
     });
   }
 
-  openFormat(device: string): void {
+  isSystemDisk(disk: BlockDevice): boolean {
+    const isSysMp = (mp?: string | null) =>
+      Boolean(mp && (mp === '/' || mp.startsWith('/boot') || mp === '[SWAP]'));
+    if (isSysMp(disk.mountpoint)) return true;
+    return (disk.children ?? []).some((ch) => isSysMp(ch.mountpoint));
+  }
+
+  openFormat(device: string, wholeDisk = false): void {
     this.formatTarget.set(device);
+    this.formatWholeDisk.set(wholeDisk);
     this.formatLabel = '';
   }
 
   confirmFormat(): void {
     const dev = this.formatTarget();
     if (!dev) return;
-    this.api.formatDisk(dev, this.formatFs, this.formatLabel).subscribe({
-      next: () => {
+    const isWhole = this.formatWholeDisk();
+    this.api.formatDisk(dev, this.formatFs, this.formatLabel, isWhole).subscribe({
+      next: (res) => {
         this.feedbackOk.set(true);
-        this.feedback.set(`Partizione ${dev} formattata in ${this.formatFs}`);
+        this.feedback.set(
+          isWhole
+            ? `Intero disco ${dev} ripartizionato (100%) e formattato in ${this.formatFs} (${res.device ?? dev})`
+            : `Partizione ${dev} formattata in ${this.formatFs}`
+        );
         this.formatTarget.set(null);
+        this.formatWholeDisk.set(false);
         this.load();
       },
       error: (err) => {
