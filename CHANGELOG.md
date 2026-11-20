@@ -1,3 +1,9 @@
+## [1.12.0](https://github.com/fedecino/custom-nas-os/compare/v1.11.0...v1.12.0) (2026-11-20)
+
+### Features
+
+* aggiunto controllo ventole / aggiunto opzioni di backup ([dcc897c](https://github.com/fedecino/custom-nas-os/commit/dcc897c6fd55b26a3f4c3d0e1a6c54e947d96772))
+
 ## [1.11.0](https://github.com/fedecino/custom-nas-os/compare/v1.10.2...v1.11.0) (2026-11-19)
 
 ### Features
