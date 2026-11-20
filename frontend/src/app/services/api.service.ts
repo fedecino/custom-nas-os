@@ -247,6 +247,38 @@ export interface SslStatusResponse {
   certExpires: string | null;
 }
 
+export interface InstallTargetDisk {
+  path: string;
+  name: string;
+  sizeBytes: number;
+  model: string;
+  transport: string;
+  removable: boolean;
+  isLiveMedium: boolean;
+}
+
+export interface InstallStatusResponse {
+  isLiveMode: boolean;
+  bootMode?: 'uefi' | 'bios';
+  liveMediumDisk?: string | null;
+  installing?: boolean;
+  completed?: boolean;
+  hostname?: string;
+}
+
+export interface InstallSseEvent {
+  type: 'step' | 'log' | 'done' | 'error';
+  step?: number;
+  total?: number;
+  label?: string;
+  message?: string;
+  stream?: 'stdout' | 'stderr';
+  success?: boolean;
+  exitCode?: number;
+  hostname?: string;
+  username?: string;
+}
+
 export interface BackupRepositoryView {
   id: string;
   name: string;
@@ -1373,9 +1405,83 @@ export class ApiService {
     }>('/api/settings/proxy-routes', payload);
   }
 
-  deleteProxyRoute(slug: string): Observable<{ success: boolean; routes: ProxyRoute[] }> {
-    return this.http.delete<{ success: boolean; routes: ProxyRoute[] }>(
+  deleteProxyRoute(slug: string): Observable<{ success: boolean; routes: ProxyRoute[]; warnings?: string[] }> {
+    return this.http.delete<{ success: boolean; routes: ProxyRoute[]; warnings?: string[] }>(
       `/api/settings/proxy-routes/${encodeURIComponent(slug)}`
     );
+  }
+
+  getInstallStatus(): Observable<InstallStatusResponse> {
+    return this.http.get<InstallStatusResponse>('/api/install/status');
+  }
+
+  getInstallDisks(): Observable<{
+    disks: InstallTargetDisk[];
+    bootMode: 'uefi' | 'bios';
+    liveMediumDisk: string | null;
+  }> {
+    return this.http.get<{
+      disks: InstallTargetDisk[];
+      bootMode: 'uefi' | 'bios';
+      liveMediumDisk: string | null;
+    }>('/api/install/disks');
+  }
+
+  async runWebInstall(
+    payload: {
+      targetDisk: string;
+      username: string;
+      password: string;
+      hostname: string;
+    },
+    onEvent: (event: InstallSseEvent) => void
+  ): Promise<void> {
+    const response = await fetch('/api/install/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok || !response.body) {
+      const errData = (await response.json().catch(() => ({}))) as { error?: string };
+      throw new Error(errData.error || `Errore installazione (HTTP ${response.status})`);
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      const chunks = buffer.split('\n\n');
+      buffer = chunks.pop() ?? '';
+
+      for (const chunk of chunks) {
+        let eventType: InstallSseEvent['type'] = 'log';
+        let dataStr = '';
+        for (const line of chunk.split('\n')) {
+          if (line.startsWith('event:')) {
+            eventType = line.slice(6).trim() as InstallSseEvent['type'];
+          } else if (line.startsWith('data:')) {
+            dataStr += line.slice(5).trim();
+          }
+        }
+        if (dataStr) {
+          try {
+            const parsed = JSON.parse(dataStr) as Record<string, unknown>;
+            onEvent({ type: eventType, ...parsed });
+          } catch {
+            onEvent({ type: 'log', message: dataStr });
+          }
+        }
+      }
+    }
+  }
+
+  triggerInstallPower(action: 'reboot' | 'poweroff'): Observable<{ success: boolean }> {
+    return this.http.post<{ success: boolean }>('/api/install/power', { action });
   }
 }

@@ -7,6 +7,7 @@ import backupsRouter, { startBackupScheduler } from './routes/backups.js';
 import fansRouter, { startFanControllerLoop } from './routes/fans.js';
 import filesRouter from './routes/files.js';
 import hubRouter from './routes/hub.js';
+import installRouter from './routes/install.js';
 import settingsRouter from './routes/settings.js';
 import sharesRouter from './routes/shares.js';
 import stacksRouter from './routes/stacks.js';
@@ -29,11 +30,12 @@ app.get('/api/health', (_req, res) => {
 
 app.use('/api/auth', authRouter);
 
-// Protect API routes (except health, auth, and public wallpaper image)
+// Protect API routes (except health, auth, live installer, and public wallpaper image)
 app.use('/api', (req, res, next) => {
   if (
     req.path === '/health' ||
     req.path.startsWith('/auth') ||
+    req.path.startsWith('/install') ||
     req.path === '/settings/wallpaper/image' ||
     req.path === '/settings/login-config' ||
     req.path === '/settings/login-wallpaper/image'
@@ -44,6 +46,7 @@ app.use('/api', (req, res, next) => {
   requireAuth(req, res, next);
 });
 
+app.use('/api/install', installRouter);
 app.use('/api/hub', hubRouter);
 app.use('/api/stacks', stacksRouter);
 app.use('/api/system', systemRouter);

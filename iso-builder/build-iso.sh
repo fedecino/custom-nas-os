@@ -54,6 +54,7 @@ lb config \
   --distribution trixie \
   --architectures amd64 \
   --binary-images iso-hybrid \
+  --bootloaders "syslinux,grub-efi" \
   --debian-installer live \
   --debian-installer-gui false \
   --archive-areas "main contrib non-free non-free-firmware" \
@@ -70,7 +71,41 @@ lb config \
   --bootappend-install "cdrom-detect/try-usb=true quiet loglevel=3"
 
 echo "==> [5/6] Copying NAS-OS configs, hooks, archives, and preseed..."
-mkdir -p config/package-lists config/hooks/normal config/includes.installer config/archives
+mkdir -p config/package-lists config/hooks/normal config/hooks/binary config/includes.installer config/archives
+
+# Auto-boot Live system after 3 seconds on BOTH BIOS (isolinux/syslinux) and UEFI (grub)
+cat > config/hooks/binary/0100-autoboot-headless.hook.binary <<'HOOK_EOF'
+#!/bin/bash
+set -euo pipefail
+
+echo "[SiloOs Binary Hook] Configuring 3-second headless auto-boot for BIOS & UEFI..."
+
+# 1. BIOS Legacy (isolinux / syslinux) — timeout is in tenths of a second (30 = 3s)
+for cfg in binary/isolinux/isolinux.cfg binary/syslinux/syslinux.cfg; do
+  if [ -f "$cfg" ]; then
+    if grep -qi '^timeout ' "$cfg"; then
+      sed -i 's/^timeout .*/timeout 30/I' "$cfg"
+    else
+      echo "timeout 30" >> "$cfg"
+    fi
+    if grep -qi '^prompt ' "$cfg"; then
+      sed -i 's/^prompt .*/prompt 0/I' "$cfg"
+    fi
+  fi
+done
+
+# 2. UEFI (GRUB) — timeout is in seconds
+for gcfg in binary/boot/grub/grub.cfg binary/EFI/boot/grub.cfg; do
+  if [ -f "$gcfg" ]; then
+    if grep -q 'set timeout=' "$gcfg"; then
+      sed -i 's/set timeout=.*/set timeout=3/' "$gcfg"
+    else
+      sed -i '1i set default=0\nset timeout=3' "$gcfg"
+    fi
+  fi
+done
+HOOK_EOF
+chmod +x config/hooks/binary/0100-autoboot-headless.hook.binary
 mkdir -p config/includes.chroot/opt/nas-os/backend
 mkdir -p config/includes.chroot/opt/nas-os/frontend/dist
 mkdir -p config/includes.chroot/etc/nginx/sites-available

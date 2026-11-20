@@ -26,6 +26,7 @@ import { ServicesManagerComponent } from './components/services-manager/services
 import { LogsViewerComponent } from './components/logs-viewer/logs-viewer.component';
 import { FileManagerComponent } from './components/file-manager/file-manager.component';
 import { LoginComponent } from './components/login/login.component';
+import { InstallWizardComponent } from './components/install-wizard/install-wizard.component';
 import { DialogHostComponent } from './components/dialog-host/dialog-host.component';
 import { DialogService } from './services/dialog.service';
 import { TerminalAppComponent } from './components/terminal-app/terminal-app.component';
@@ -62,6 +63,7 @@ type ActiveWindow =
     LogsViewerComponent,
     FileManagerComponent,
     LoginComponent,
+    InstallWizardComponent,
     DialogHostComponent,
     TerminalAppComponent,
     DockerIconComponent,
@@ -72,6 +74,8 @@ type ActiveWindow =
         <img src="/siloos-icon-disco.svg" alt="SiloOs" class="h-16 w-16 animate-pulse" />
         <span class="mt-3 text-xs tracking-wider uppercase text-[#38bdf8]">Avvio SiloOs...</span>
       </div>
+    } @else if (liveInstallMode()) {
+      <app-install-wizard [initialBootMode]="liveBootMode()" />
     } @else if (!authenticated()) {
       <app-login
         [backgroundStyle]="wallpaperStyle()"
@@ -986,6 +990,8 @@ export class AppComponent implements OnInit, OnDestroy {
   private readonly dialog = inject(DialogService);
 
   authChecked = signal(false);
+  liveInstallMode = signal(false);
+  liveBootMode = signal<'uefi' | 'bios'>('uefi');
   authenticated = signal(false);
   currentUser = signal<string | null>(null);
   isAdmin = signal(true);
@@ -1065,6 +1071,23 @@ export class AppComponent implements OnInit, OnDestroy {
     ngOnInit(): void {
       this.updateClock();
       this.clockTimer = setInterval(() => this.updateClock(), 1000);
+      this.api.getInstallStatus().subscribe({
+        next: (installRes) => {
+          if (installRes.isLiveMode) {
+            this.liveInstallMode.set(true);
+            this.liveBootMode.set(installRes.bootMode ?? 'uefi');
+            this.authChecked.set(true);
+            return;
+          }
+          this.checkAuthStatus();
+        },
+        error: () => {
+          this.checkAuthStatus();
+        },
+      });
+    }
+
+  private checkAuthStatus(): void {
       this.api.getAuthStatus().subscribe({
         next: (res) => {
           this.authChecked.set(true);
