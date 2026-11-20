@@ -98,6 +98,17 @@ Al termine della build verrà generato nella root del progetto il file:
 siloos-x86_64-v<version>.iso
 ```
 
+### Opzione C: Build dedicata per NAS TerraMaster con Intel Celeron J1800 (Bay Trail)
+I TerraMaster J1800 con 6 GB di RAM richiedono `mem=5G` (e `intel_idle.max_cstate=1` per stabilità Bay Trail) sia in Live sia nel GRUB del sistema installato. Usa il builder dedicato:
+
+```bash
+./iso-builder/build-iso-terramaster-j1800-docker.sh
+# oppure su host Debian/Ubuntu:
+sudo ./iso-builder/build-iso-terramaster-j1800.sh
+```
+
+Verrà generata l'immagine dedicata `siloos-x86_64-v<version>-terramaster-j1800.iso` (con `mem=5G intel_idle.max_cstate=1` applicati automaticamente anche al GRUB del disco installato e moduli sensori `coretemp`/`it87` precaricati).
+
 ---
 
 ## 3. Scrittura su Chiavetta USB e Installazione Headless (BIOS & UEFI)

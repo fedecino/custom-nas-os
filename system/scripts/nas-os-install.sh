@@ -126,17 +126,32 @@ cleanup() {
 trap cleanup EXIT
 
 echo "[STEP 3/5] Copia del sistema SiloOs su $TARGET_DISK (attendere qualche minuto)..."
-rsync -aAX \
+# Note: avoid -X (xattrs) when copying from Debian Live overlayfs, as trusted.overlay.* xattrs
+# cause rsync exit code 23 on ext4. Also allow rc 23/24 (vanished runtime files on live OS).
+RSYNC_RC=0
+rsync -aA --numeric-ids \
   --exclude='/dev/*' \
   --exclude='/proc/*' \
   --exclude='/sys/*' \
   --exclude='/tmp/*' \
+  --exclude='/var/tmp/*' \
   --exclude='/run/*' \
   --exclude='/mnt/*' \
   --exclude='/media/*' \
   --exclude='/lost+found' \
   --exclude='/lib/live/*' \
-  / "$TARGET_MNT/"
+  --exclude='/usr/lib/live/*' \
+  --exclude='/DATA/Disks/*' \
+  --exclude='/var/cache/apt/archives/*.deb' \
+  / "$TARGET_MNT/" || RSYNC_RC=$?
+
+if [ "$RSYNC_RC" -ne 0 ] && [ "$RSYNC_RC" -ne 23 ] && [ "$RSYNC_RC" -ne 24 ]; then
+  echo "ERRORE: rsync fallito con codice $RSYNC_RC"
+  exit "$RSYNC_RC"
+fi
+if [ "$RSYNC_RC" -eq 23 ] || [ "$RSYNC_RC" -eq 24 ]; then
+  echo "Avviso: rsync completato con codice $RSYNC_RC (alcuni file temporanei/xattr Live ignorati)."
+fi
 
 mkdir -p "$TARGET_MNT"/{dev,proc,sys,tmp,run,mnt,media}
 chmod 1777 "$TARGET_MNT/tmp"
@@ -171,8 +186,18 @@ printf '%s\n%s\n' "$NEW_PASS" "$NEW_PASS" | chroot "$TARGET_MNT" smbpasswd -a -s
 chroot "$TARGET_MNT" smbpasswd -e "$NEW_USER" >/dev/null 2>&1 || true
 mkdir -p "$TARGET_MNT/DATA/Homes/$NEW_USER"
 
+EXTRA_KOPTS=""
+if [ -f /etc/siloos-kernel-opts ]; then
+  EXTRA_KOPTS="$(tr -s ' \n' ' ' < /etc/siloos-kernel-opts | xargs || true)"
+fi
+GRUB_CMDLINE_VAL="quiet loglevel=3"
+if [ -n "$EXTRA_KOPTS" ]; then
+  GRUB_CMDLINE_VAL="quiet loglevel=3 ${EXTRA_KOPTS}"
+  echo "  -> Applicazione parametri kernel hardware-specific: ${EXTRA_KOPTS}"
+fi
+
 if [ -f "$TARGET_MNT/etc/default/grub" ]; then
-  sed -i 's/^GRUB_CMDLINE_LINUX_DEFAULT=.*/GRUB_CMDLINE_LINUX_DEFAULT="quiet loglevel=3"/' "$TARGET_MNT/etc/default/grub"
+  sed -i "s|^GRUB_CMDLINE_LINUX_DEFAULT=.*|GRUB_CMDLINE_LINUX_DEFAULT=\"${GRUB_CMDLINE_VAL}\"|" "$TARGET_MNT/etc/default/grub"
 fi
 
 # Install BOTH BIOS Legacy (i386-pc) and UEFI (x86_64-efi) bootloaders on GPT
@@ -180,7 +205,7 @@ echo "  -> Installazione GRUB BIOS Legacy (i386-pc) su $TARGET_DISK..."
 chroot "$TARGET_MNT" grub-install --target=i386-pc --recheck "$TARGET_DISK" || \
   echo "Avviso: grub-install i386-pc non riuscito (continuo con UEFI)"
 
-echo "  -> Installazione GRUB UEFI (x86_64-efi, fallback /EFI/BOOT/BOOTX64.EFI)..."
+echo "  -> Installazione GRUB UEFI 64-bit (x86_64-efi, fallback /EFI/BOOT/BOOTX64.EFI)..."
 chroot "$TARGET_MNT" grub-install \
   --target=x86_64-efi \
   --efi-directory=/boot/efi \
@@ -188,6 +213,15 @@ chroot "$TARGET_MNT" grub-install \
   --removable \
   --no-nvram \
   --recheck || echo "Avviso: grub-install x86_64-efi removable non riuscito"
+
+echo "  -> Installazione GRUB UEFI 32-bit (i386-efi, fallback /EFI/BOOT/BOOTIA32.EFI per Intel Bay Trail)..."
+chroot "$TARGET_MNT" grub-install \
+  --target=i386-efi \
+  --efi-directory=/boot/efi \
+  --bootloader-id=siloos \
+  --removable \
+  --no-nvram \
+  --recheck 2>/dev/null || true
 
 if [ -d /sys/firmware/efi ]; then
   echo "  -> Registrazione voce NVRAM UEFI..."

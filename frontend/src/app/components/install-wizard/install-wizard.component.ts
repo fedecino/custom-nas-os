@@ -40,8 +40,15 @@ import { ApiService, InstallTargetDisk } from '../../services/api.service';
         </div>
 
         @if (errorMsg()) {
-          <div class="mt-4 rounded-xl border border-rose-500/40 bg-rose-500/15 px-4 py-3 text-xs text-rose-200">
-            {{ errorMsg() }}
+          <div class="mt-4 rounded-xl border border-rose-500/40 bg-rose-500/15 px-4 py-3 text-xs text-rose-200 space-y-2">
+            <div>{{ errorMsg() }}</div>
+            @if (phase() === 'config' && logs().length > 0) {
+              <div class="max-h-44 overflow-y-auto rounded-lg border border-rose-500/20 bg-black/60 p-2.5 font-mono text-[10px] leading-relaxed text-slate-300">
+                @for (line of logs().slice(-40); track $index) {
+                  <div class="whitespace-pre-wrap break-all">{{ line }}</div>
+                }
+              </div>
+            }
           </div>
         }
 

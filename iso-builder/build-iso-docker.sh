@@ -24,6 +24,13 @@ else
 fi
 
 APP_VERSION="${SILOOS_VERSION:-$(cat "${REPO_ROOT}/VERSION" 2>/dev/null | tr -d '[:space:]' || echo '1.0.0')}"
+ISO_VARIANT="${ISO_VARIANT:-}"
+EXTRA_KERNEL_OPTS="${EXTRA_KERNEL_OPTS:-}"
+if [ -n "${ISO_VARIANT}" ]; then
+  ISO_FILENAME="siloos-x86_64-v${APP_VERSION}-${ISO_VARIANT}.iso"
+else
+  ISO_FILENAME="siloos-x86_64-v${APP_VERSION}.iso"
+fi
 
 echo "==> [4/4] Running live-build inside privileged Docker container..."
 docker run --rm --privileged \
@@ -31,9 +38,11 @@ docker run --rm --privileged \
   -e LB_WORK_DIR=/tmp/lb-work \
   -e LB_CACHE_DIR=/workspace/iso-builder/.lb-cache \
   -e SILOOS_VERSION="${APP_VERSION}" \
+  -e ISO_VARIANT="${ISO_VARIANT}" \
+  -e EXTRA_KERNEL_OPTS="${EXTRA_KERNEL_OPTS}" \
   -e HOST_UID="$(id -u)" \
   -e HOST_GID="$(id -g)" \
   -v "${REPO_ROOT}:/workspace" \
   "${IMAGE_NAME}"
 
-echo "==> Done! ISO available at: ${REPO_ROOT}/siloos-x86_64-v${APP_VERSION}.iso"
+echo "==> Done! ISO available at: ${REPO_ROOT}/${ISO_FILENAME}"

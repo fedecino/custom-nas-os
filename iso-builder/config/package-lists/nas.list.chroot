@@ -19,6 +19,7 @@ rsync
 restic
 lm-sensors
 grub-efi-amd64
+grub-efi-ia32-bin
 grub-pc-bin
 efibootmgr
 

@@ -5,7 +5,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 WORK_DIR="${LB_WORK_DIR:-${SCRIPT_DIR}/work}"
 APP_VERSION="${SILOOS_VERSION:-$(cat "${REPO_ROOT}/VERSION" 2>/dev/null | tr -d '[:space:]' || echo '1.0.0')}"
-OUTPUT_ISO="${REPO_ROOT}/siloos-x86_64-v${APP_VERSION}.iso"
+ISO_VARIANT="${ISO_VARIANT:-}"
+EXTRA_KERNEL_OPTS="${EXTRA_KERNEL_OPTS:-}"
+if [ -n "${ISO_VARIANT}" ]; then
+  OUTPUT_ISO="${REPO_ROOT}/siloos-x86_64-v${APP_VERSION}-${ISO_VARIANT}.iso"
+else
+  OUTPUT_ISO="${REPO_ROOT}/siloos-x86_64-v${APP_VERSION}.iso"
+fi
 
 if [ "$(id -u)" -ne 0 ]; then
   echo "ERROR: build-iso.sh must be run as root (or via build-iso-docker.sh)"
@@ -50,6 +56,14 @@ if [ -n "${LB_CACHE_DIR:-}" ]; then
 fi
 cd "${WORK_DIR}"
 
+LIVE_BOOT_OPTS="boot=live components hostname=siloos quiet loglevel=3"
+INSTALL_BOOT_OPTS="cdrom-detect/try-usb=true quiet loglevel=3"
+if [ -n "${EXTRA_KERNEL_OPTS}" ]; then
+  echo "==> Applying extra kernel boot options: ${EXTRA_KERNEL_OPTS}"
+  LIVE_BOOT_OPTS="${LIVE_BOOT_OPTS} ${EXTRA_KERNEL_OPTS}"
+  INSTALL_BOOT_OPTS="${INSTALL_BOOT_OPTS} ${EXTRA_KERNEL_OPTS}"
+fi
+
 lb config \
   --distribution trixie \
   --architectures amd64 \
@@ -67,24 +81,21 @@ lb config \
   --memtest none \
   --iso-application "SiloOs" \
   --iso-volume "SILOOS_X86_64" \
-  --bootappend-live "boot=live components hostname=siloos quiet loglevel=3" \
-  --bootappend-install "cdrom-detect/try-usb=true quiet loglevel=3"
+  --bootappend-live "${LIVE_BOOT_OPTS}" \
+  --bootappend-install "${INSTALL_BOOT_OPTS}"
 
 echo "==> [5/6] Copying NAS-OS configs, hooks, archives, and preseed..."
-mkdir -p config/package-lists config/hooks/normal config/hooks/binary config/includes.installer config/archives
+mkdir -p config/package-lists config/hooks/normal config/includes.installer config/archives
 
-# Auto-boot Live system after 3 seconds on BOTH BIOS (isolinux/syslinux) and UEFI (grub)
-# Note: live-build executes binary hooks with CWD inside binary/, so check both relative and binary/ paths
-cat > config/hooks/binary/0100-autoboot-headless.hook.binary <<'HOOK_EOF'
-#!/bin/bash
-set -euo pipefail
+# Override live-build bootloader templates (official way) for 3-second headless auto-boot on BIOS & UEFI
+if [ -d /usr/share/live/build/bootloaders ]; then
+  echo "==> Configuring 3-second headless auto-boot templates (BIOS isolinux + UEFI grub)..."
+  mkdir -p config/bootloaders
+  cp -r /usr/share/live/build/bootloaders/* config/bootloaders/
 
-echo "[SiloOs Binary Hook] Configuring 3-second headless auto-boot for BIOS & UEFI (cwd=$(pwd))..."
-
-# 1. BIOS Legacy (isolinux / syslinux) — timeout is in tenths of a second (30 = 3s)
-for cfg in isolinux/isolinux.cfg syslinux/syslinux.cfg binary/isolinux/isolinux.cfg binary/syslinux/syslinux.cfg; do
-  if [ -f "$cfg" ]; then
-    echo "[SiloOs Binary Hook] Patching BIOS bootloader: $cfg"
+  # 1. BIOS Legacy (isolinux / syslinux): timeout is in tenths of a second (30 = 3s)
+  find config/bootloaders -type f \( -name 'isolinux.cfg' -o -name 'syslinux.cfg' \) | while read -r cfg; do
+    echo "    Patching BIOS template: $cfg"
     if grep -qi '^timeout ' "$cfg"; then
       sed -i 's/^timeout .*/timeout 30/I' "$cfg"
     else
@@ -93,22 +104,20 @@ for cfg in isolinux/isolinux.cfg syslinux/syslinux.cfg binary/isolinux/isolinux.
     if grep -qi '^prompt ' "$cfg"; then
       sed -i 's/^prompt .*/prompt 0/I' "$cfg"
     fi
-  fi
-done
+  done
 
-# 2. UEFI (GRUB) — timeout is in seconds
-for gcfg in boot/grub/grub.cfg boot/grub/config.cfg EFI/boot/grub.cfg binary/boot/grub/grub.cfg binary/boot/grub/config.cfg binary/EFI/boot/grub.cfg; do
-  if [ -f "$gcfg" ]; then
-    echo "[SiloOs Binary Hook] Patching UEFI bootloader: $gcfg"
+  # 2. UEFI (GRUB): timeout is in seconds (3s)
+  find config/bootloaders -type f \( -name 'config.cfg' -o -name 'grub.cfg' \) | while read -r gcfg; do
+    echo "    Patching UEFI template: $gcfg"
     if grep -q 'set timeout=' "$gcfg"; then
       sed -i 's/set timeout=.*/set timeout=3/' "$gcfg"
+    elif grep -q 'set default=' "$gcfg"; then
+      sed -i '/^set default=/a set timeout=3' "$gcfg"
     else
       sed -i '1i set default=0\nset timeout=3' "$gcfg"
     fi
-  fi
-done
-HOOK_EOF
-chmod +x config/hooks/binary/0100-autoboot-headless.hook.binary
+  done
+fi
 mkdir -p config/includes.chroot/opt/nas-os/backend
 mkdir -p config/includes.chroot/opt/nas-os/frontend/dist
 mkdir -p config/includes.chroot/etc/nginx/sites-available
@@ -117,6 +126,15 @@ mkdir -p config/includes.chroot/usr/local/bin
 mkdir -p config/includes.chroot/usr/local/sbin
 mkdir -p config/includes.chroot/etc/NetworkManager/dispatcher.d
 mkdir -p config/includes.chroot/etc/udev/rules.d
+
+# Persist variant-specific kernel options (e.g. mem=5G for TerraMaster J1800) so nas-os-install applies them to GRUB
+if [ -n "${EXTRA_KERNEL_OPTS}" ]; then
+  echo "${EXTRA_KERNEL_OPTS}" > config/includes.chroot/etc/siloos-kernel-opts
+fi
+if [ "${ISO_VARIANT}" = "terramaster-j1800" ]; then
+  mkdir -p config/includes.chroot/etc/modules-load.d
+  printf "coretemp\nit87\n" > config/includes.chroot/etc/modules-load.d/siloos-terramaster.conf
+fi
 
 cp "${SCRIPT_DIR}/config/package-lists/nas.list.chroot" config/package-lists/
 cp "${SCRIPT_DIR}/config/hooks/normal/0100-setup-nas.hook.chroot" config/hooks/normal/
@@ -157,6 +175,21 @@ fi
 mv "${ISO_GENERATED}" "${OUTPUT_ISO}"
 if [ -n "${HOST_UID:-}" ] && [ -n "${HOST_GID:-}" ]; then
   chown "${HOST_UID}:${HOST_GID}" "${OUTPUT_ISO}"
+fi
+
+# Verify auto-boot timeouts inside the generated ISO
+echo "==> Verifying BIOS & UEFI auto-boot timeouts in ${OUTPUT_ISO}..."
+if command -v xorriso >/dev/null 2>&1; then
+  TMP_CHK="$(mktemp -d)"
+  xorriso -osirrox on -indev "${OUTPUT_ISO}" -extract /isolinux/isolinux.cfg "${TMP_CHK}/isolinux.cfg" 2>/dev/null || true
+  xorriso -osirrox on -indev "${OUTPUT_ISO}" -extract /boot/grub/config.cfg "${TMP_CHK}/config.cfg" 2>/dev/null || true
+  if [ -f "${TMP_CHK}/isolinux.cfg" ]; then
+    grep -i 'timeout' "${TMP_CHK}/isolinux.cfg" || true
+  fi
+  if [ -f "${TMP_CHK}/config.cfg" ]; then
+    grep 'timeout' "${TMP_CHK}/config.cfg" || true
+  fi
+  rm -rf "${TMP_CHK}"
 fi
 
 echo "==> SUCCESS! Bootable ISO generated at: ${OUTPUT_ISO}"
