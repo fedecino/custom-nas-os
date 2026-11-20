@@ -1,3 +1,10 @@
+## [1.13.1](https://github.com/fedecino/custom-nas-os/compare/v1.13.0...v1.13.1) (2026-11-20)
+
+### Bug Fixes
+
+* implementato la security del sistema ([f2dda03](https://github.com/fedecino/custom-nas-os/commit/f2dda0331ec20f7b7c24a3e6d9777a8575c4a606))
+* sistemato avvio installazione ([6cca2f8](https://github.com/fedecino/custom-nas-os/commit/6cca2f880101c3b7a0af39f35c2dad2aa3aafd91))
+
 ## [1.13.0](https://github.com/fedecino/custom-nas-os/compare/v1.12.0...v1.13.0) (2026-11-20)
 
 ### Features
