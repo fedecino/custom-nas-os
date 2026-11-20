@@ -1,3 +1,9 @@
+## [1.13.0](https://github.com/fedecino/custom-nas-os/compare/v1.12.0...v1.13.0) (2026-11-20)
+
+### Features
+
+* nuova tipologia di installazione ([9c24f72](https://github.com/fedecino/custom-nas-os/commit/9c24f723127eab038ff56df5f207c48114e270f1))
+
 ## [1.12.0](https://github.com/fedecino/custom-nas-os/compare/v1.11.0...v1.12.0) (2026-11-20)
 
 ### Features
