@@ -1,6 +1,8 @@
 import { execFile } from 'node:child_process';
 import crypto from 'node:crypto';
+import dgram from 'node:dgram';
 import fs from 'node:fs/promises';
+import net from 'node:net';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { Router, Request, Response } from 'express';
@@ -11,6 +13,23 @@ const execFileAsync = promisify(execFile);
 const router = Router();
 
 const BACKUPS_FILE = path.join(DATA_DIR, '.nas-os', 'backups.json');
+const NETWORK_MOUNTS_FILE = path.join(DATA_DIR, '.nas-os', 'network-mounts.json');
+const WOL_SSH_KEY_PATH = path.join(DATA_DIR, '.nas-os', 'backup-wol.key');
+const WOL_SSH_PUB_PATH = `${WOL_SSH_KEY_PATH}.pub`;
+
+export interface RemotePowerConfig {
+  enabled: boolean;
+  macAddress: string;
+  host: string;
+  checkPort: number;
+  waitTimeoutSec: number;
+  autoMountNetworkName?: string;
+  shutdownAfter: boolean;
+  shutdownOnlyIfWoken: boolean;
+  sshUser: string;
+  sshPort: number;
+  shutdownCommand: string;
+}
 
 export interface BackupRepository {
   id: string;
@@ -35,6 +54,7 @@ export interface BackupJob {
   keepWeekly: number;
   keepMonthly: number;
   enabled: boolean;
+  remotePower?: RemotePowerConfig;
   lastRunAt: string | null;
   lastStatus: 'ok' | 'error' | 'running' | null;
   lastMessage: string | null;
@@ -112,6 +132,178 @@ async function getResticVersion(): Promise<{ installed: boolean; version: string
   }
 }
 
+function isValidMac(mac: string): boolean {
+  return /^([0-9a-fA-F]{2}[:-]){5}[0-9a-fA-F]{2}$/.test(mac.trim());
+}
+
+async function sendWakeOnLan(macAddress: string): Promise<void> {
+  const clean = macAddress.trim();
+  if (!isValidMac(clean)) {
+    throw new Error('MAC Address non valido (usa formato AA:BB:CC:DD:EE:FF)');
+  }
+  const macBytes = Buffer.from(clean.replace(/[:-]/g, ''), 'hex');
+  const packet = Buffer.alloc(6 + 16 * 6, 0xff);
+  for (let i = 0; i < 16; i++) {
+    macBytes.copy(packet, 6 + i * 6);
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    const socket = dgram.createSocket('udp4');
+    socket.once('error', (err) => {
+      socket.close();
+      reject(err);
+    });
+    socket.bind(() => {
+      socket.setBroadcast(true);
+      let sent = 0;
+      const sendOnce = () => {
+        socket.send(packet, 0, packet.length, 9, '255.255.255.255', (err) => {
+          if (err) {
+            socket.close();
+            reject(err);
+            return;
+          }
+          sent++;
+          if (sent < 3) {
+            setTimeout(sendOnce, 200);
+          } else {
+            socket.close();
+            resolve();
+          }
+        });
+      };
+      sendOnce();
+    });
+  });
+}
+
+async function isTcpPortOpen(host: string, port: number, timeoutMs = 2500): Promise<boolean> {
+  return new Promise((resolve) => {
+    const sock = new net.Socket();
+    let settled = false;
+    const finish = (ok: boolean) => {
+      if (settled) return;
+      settled = true;
+      sock.destroy();
+      resolve(ok);
+    };
+    sock.setTimeout(timeoutMs);
+    sock.once('connect', () => finish(true));
+    sock.once('timeout', () => finish(false));
+    sock.once('error', () => finish(false));
+    sock.connect(port, host);
+  });
+}
+
+async function ensureWolSshKey(): Promise<string> {
+  try {
+    const existing = (await fs.readFile(WOL_SSH_PUB_PATH, 'utf-8')).trim();
+    if (existing) return existing;
+  } catch {
+    // generate below
+  }
+  await fs.mkdir(path.dirname(WOL_SSH_KEY_PATH), { recursive: true });
+  await execFileAsync(
+    'ssh-keygen',
+    ['-t', 'ed25519', '-N', '', '-C', 'siloos-backup-wol', '-f', WOL_SSH_KEY_PATH],
+    { timeout: 10_000 }
+  );
+  await fs.chmod(WOL_SSH_KEY_PATH, 0o600).catch(() => {});
+  return (await fs.readFile(WOL_SSH_PUB_PATH, 'utf-8')).trim();
+}
+
+async function mountSavedNetworkDrive(name: string): Promise<string | null> {
+  try {
+    const raw = await fs.readFile(NETWORK_MOUNTS_FILE, 'utf-8');
+    const list = JSON.parse(raw) as Array<{
+      name: string;
+      protocol: 'smb' | 'nfs';
+      host: string;
+      sharePath: string;
+      mountpoint: string;
+      username?: string;
+    }>;
+    const entry = list.find((m) => m.name === name);
+    if (!entry) return null;
+
+    const procMounts = await fs.readFile('/proc/mounts', 'utf-8').catch(() => '');
+    const alreadyMounted = procMounts
+      .split('\n')
+      .some((l) => l.split(' ')[1]?.replace(/\\040/g, ' ') === entry.mountpoint);
+    if (alreadyMounted) return entry.mountpoint;
+
+    await fs.mkdir(entry.mountpoint, { recursive: true });
+    if (entry.protocol === 'nfs') {
+      const exportPath = entry.sharePath.startsWith('/')
+        ? entry.sharePath
+        : `/${entry.sharePath}`;
+      await execFileAsync('mount', ['-t', 'nfs', `${entry.host}:${exportPath}`, entry.mountpoint], {
+        timeout: 15_000,
+      });
+    } else {
+      const shareClean = entry.sharePath.replace(/^\/+/, '');
+      const source = `//${entry.host}/${shareClean}`;
+      const credsFile = path.join(DATA_DIR, '.nas-os', `netcred-${entry.name}`);
+      let opts = 'iocharset=utf8,file_mode=0775,dir_mode=0775';
+      try {
+        await fs.access(credsFile);
+        opts = `credentials=${credsFile},${opts}`;
+      } catch {
+        opts = `guest,${opts}`;
+      }
+      await execFileAsync('mount', ['-t', 'cifs', source, entry.mountpoint, '-o', opts], {
+        timeout: 15_000,
+      });
+    }
+    return entry.mountpoint;
+  } catch (err) {
+    throw new Error(
+      `Mount disco di rete "${name}" fallito: ${err instanceof Error ? err.message : String(err)}`
+    );
+  }
+}
+
+async function unmountPathCleanly(mountpoint: string): Promise<void> {
+  await execFileAsync('umount', [mountpoint], { timeout: 10_000 }).catch(() =>
+    execFileAsync('umount', ['-l', mountpoint], { timeout: 10_000 }).catch(() => {})
+  );
+}
+
+async function triggerRemoteShutdown(rp: RemotePowerConfig): Promise<string> {
+  await ensureWolSshKey();
+  const cmd = rp.shutdownCommand?.trim() || 'sudo -n poweroff || poweroff';
+  const port = rp.sshPort > 0 && rp.sshPort <= 65535 ? rp.sshPort : 22;
+  const user = rp.sshUser?.trim() || 'root';
+  try {
+    const { stdout, stderr } = await execFileAsync(
+      'ssh',
+      [
+        '-i',
+        WOL_SSH_KEY_PATH,
+        '-p',
+        String(port),
+        '-o',
+        'StrictHostKeyChecking=accept-new',
+        '-o',
+        'BatchMode=yes',
+        '-o',
+        'ConnectTimeout=10',
+        `${user}@${rp.host}`,
+        cmd,
+      ],
+      { timeout: 15_000 }
+    );
+    return (stdout + '\n' + stderr).trim() || 'Comando spegnimento remoto inviato.';
+  } catch (err) {
+    // SSH often exits with 255 when remote host powers off immediately
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes('closed by remote host') || msg.includes('255')) {
+      return 'Comando spegnimento inviato (connessione chiusa dal server remoto).';
+    }
+    throw err;
+  }
+}
+
 async function executeBackupJob(jobId: string): Promise<{
   success: boolean;
   output: string;
@@ -141,8 +333,46 @@ async function executeBackupJob(jobId: string): Promise<{
 
   const env = buildResticEnv(repo);
   const logs: string[] = [];
+  const rp = job.remotePower?.enabled ? job.remotePower : null;
+  let wasAlreadyAwake = true;
+  let mountedTempPath: string | null = null;
 
   try {
+    // Phase 1: Optional Wake-on-LAN & wait for target service port
+    if (rp && rp.host && rp.macAddress) {
+      const checkPort = rp.checkPort || 2049;
+      wasAlreadyAwake = await isTcpPortOpen(rp.host, checkPort, 2500);
+      if (wasAlreadyAwake) {
+        logs.push(`[WoL] Host remoto ${rp.host}:${checkPort} già acceso e pronto.`);
+      } else {
+        logs.push(`[WoL] Invio Magic Packet a ${rp.macAddress} per accendere ${rp.host}...`);
+        await sendWakeOnLan(rp.macAddress);
+        const deadline = Date.now() + Math.max(30, rp.waitTimeoutSec || 150) * 1000;
+        let ready = false;
+        while (Date.now() < deadline) {
+          await new Promise((r) => setTimeout(r, 4000));
+          if (await isTcpPortOpen(rp.host, checkPort, 2500)) {
+            ready = true;
+            break;
+          }
+        }
+        if (!ready) {
+          throw new Error(
+            `Timeout WoL: ${rp.host}:${checkPort} non è diventato raggiungibile entro ${rp.waitTimeoutSec || 150}s`
+          );
+        }
+        logs.push(`[WoL] Host ${rp.host}:${checkPort} pronto! Attesa 3s stabilizzazione...`);
+        await new Promise((r) => setTimeout(r, 3000));
+      }
+
+      if (rp.autoMountNetworkName) {
+        mountedTempPath = await mountSavedNetworkDrive(rp.autoMountNetworkName);
+        if (mountedTempPath) {
+          logs.push(`[Mount] Disco di rete montato su ${mountedTempPath}`);
+        }
+      }
+    }
+
     const backupArgs = ['backup', ...validSources, '--tag', `siloos-${job.id}`];
     for (const ex of job.excludes) {
       const cleaned = ex.trim();
@@ -196,6 +426,23 @@ async function executeBackupJob(jobId: string): Promise<{
     }
     throw new Error(errMsg);
   } finally {
+    // Always unmount network share cleanly BEFORE powering off the remote host
+    if (mountedTempPath) {
+      await unmountPathCleanly(mountedTempPath);
+      logs.push(`[Mount] Disco di rete smontato (${mountedTempPath}).`);
+    }
+    if (rp && rp.shutdownAfter && (!rp.shutdownOnlyIfWoken || !wasAlreadyAwake)) {
+      try {
+        const sdMsg = await triggerRemoteShutdown(rp);
+        logs.push(`[Shutdown] ${sdMsg}`);
+      } catch (sdErr) {
+        logs.push(
+          `[Shutdown] Avviso: spegnimento remoto non riuscito (${
+            sdErr instanceof Error ? sdErr.message : String(sdErr)
+          })`
+        );
+      }
+    }
     runningJobId = null;
   }
 }
@@ -457,6 +704,27 @@ router.post('/repos/:id/restore', async (req: Request, res: Response) => {
   }
 });
 
+router.get('/ssh-key', async (_req: Request, res: Response) => {
+  try {
+    const publicKey = await ensureWolSshKey();
+    res.json({ publicKey });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Errore generazione chiave SSH';
+    res.status(500).json({ error: message });
+  }
+});
+
+router.post('/wol-test', async (req: Request, res: Response) => {
+  const { macAddress } = req.body as { macAddress?: string };
+  try {
+    await sendWakeOnLan(String(macAddress ?? ''));
+    res.json({ success: true, message: `Magic Packet WoL inviato a ${macAddress}` });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Invio WoL fallito';
+    res.status(400).json({ error: message });
+  }
+});
+
 router.post('/jobs', async (req: Request, res: Response) => {
   const body = req.body as Partial<BackupJob>;
   const name = String(body.name ?? '').trim();
@@ -498,6 +766,24 @@ router.post('/jobs', async (req: Request, res: Response) => {
     keepWeekly: Math.max(0, Number(body.keepWeekly ?? 4) || 0),
     keepMonthly: Math.max(0, Number(body.keepMonthly ?? 6) || 0),
     enabled: body.enabled !== false,
+    remotePower:
+      body.remotePower && body.remotePower.enabled
+        ? {
+            enabled: true,
+            macAddress: String(body.remotePower.macAddress ?? '').trim(),
+            host: String(body.remotePower.host ?? '').trim(),
+            checkPort: Math.max(1, Math.min(65535, Number(body.remotePower.checkPort ?? 2049) || 2049)),
+            waitTimeoutSec: Math.max(30, Math.min(600, Number(body.remotePower.waitTimeoutSec ?? 150) || 150)),
+            autoMountNetworkName: body.remotePower.autoMountNetworkName?.trim() || undefined,
+            shutdownAfter: Boolean(body.remotePower.shutdownAfter),
+            shutdownOnlyIfWoken: body.remotePower.shutdownOnlyIfWoken !== false,
+            sshUser: String(body.remotePower.sshUser ?? 'root').trim() || 'root',
+            sshPort: Math.max(1, Math.min(65535, Number(body.remotePower.sshPort ?? 22) || 22)),
+            shutdownCommand:
+              String(body.remotePower.shutdownCommand ?? 'sudo -n poweroff || poweroff').trim() ||
+              'sudo -n poweroff || poweroff',
+          }
+        : undefined,
     lastRunAt: existing?.lastRunAt ?? null,
     lastStatus: existing?.lastStatus ?? null,
     lastMessage: existing?.lastMessage ?? null,

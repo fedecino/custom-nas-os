@@ -254,6 +254,132 @@ type BackupTab = 'jobs' | 'repos' | 'snapshots';
               </div>
             </div>
 
+            <!-- Optional Wake-on-LAN & Remote Shutdown -->
+            <div class="rounded-xl border border-white/10 bg-black/25 p-3.5 space-y-3">
+              <label class="flex items-center gap-2 text-xs font-medium text-sky-200 cursor-pointer">
+                <input
+                  type="checkbox"
+                  [(ngModel)]="jobForm.remotePowerEnabled"
+                  (ngModelChange)="onRemotePowerToggled($event)"
+                  class="accent-[#38bdf8]"
+                />
+                <span>⚡ Accendi PC/NAS remoto prima del backup (Wake-on-LAN) e spegnilo al termine</span>
+              </label>
+
+              @if (jobForm.remotePowerEnabled) {
+                <div class="grid grid-cols-1 gap-3 pt-1 sm:grid-cols-2">
+                  <div>
+                    <label class="block text-[11px] text-slate-400">MAC Address PC/NAS di backup</label>
+                    <div class="mt-1 flex gap-1.5">
+                      <input
+                        type="text"
+                        [(ngModel)]="jobForm.wolMac"
+                        placeholder="es. AA:BB:CC:DD:EE:FF"
+                        class="min-w-0 flex-1 rounded-xl border border-white/10 bg-black/40 px-3 py-1.5 font-mono text-xs text-white focus:border-[#38bdf8] focus:outline-none"
+                      />
+                      <button
+                        type="button"
+                        (click)="testWol()"
+                        [disabled]="!jobForm.wolMac.trim()"
+                        class="shrink-0 rounded-xl border border-[#38bdf8]/40 bg-[#38bdf8]/15 px-2.5 py-1.5 text-[11px] font-medium text-[#38bdf8] hover:bg-[#38bdf8]/25 disabled:opacity-50"
+                      >
+                        ⚡ Testa
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label class="block text-[11px] text-slate-400">IP o Hostname PC/NAS remoto</label>
+                    <input
+                      type="text"
+                      [(ngModel)]="jobForm.wolHost"
+                      placeholder="es. 192.168.1.50"
+                      class="mt-1 w-full rounded-xl border border-white/10 bg-black/40 px-3 py-1.5 font-mono text-xs text-white focus:border-[#38bdf8] focus:outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label class="block text-[11px] text-slate-400">Servizio da attendere (porta TCP)</label>
+                    <select
+                      [(ngModel)]="jobForm.wolCheckPort"
+                      class="mt-1 w-full rounded-xl border border-white/10 bg-black/40 px-3 py-1.5 text-xs text-white"
+                    >
+                      <option [ngValue]="2049">NFS (Porta 2049)</option>
+                      <option [ngValue]="445">SMB / Samba (Porta 445)</option>
+                      <option [ngValue]="22">SFTP / SSH (Porta 22)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label class="block text-[11px] text-slate-400">Monta/Smonta Disco di Rete automaticamente</label>
+                    <select
+                      [(ngModel)]="jobForm.wolAutoMountName"
+                      class="mt-1 w-full rounded-xl border border-white/10 bg-black/40 px-3 py-1.5 text-xs text-white"
+                    >
+                      <option value="">Nessuno (es. repository SFTP diretto)</option>
+                      @for (nm of networkMounts(); track nm.name) {
+                        <option [value]="nm.name">🌐 {{ nm.name }} ({{ nm.protocol.toUpperCase() }} — {{ nm.host }})</option>
+                      }
+                    </select>
+                  </div>
+
+                  <div class="sm:col-span-2 flex flex-wrap gap-4 pt-1 text-xs text-slate-300">
+                    <label class="flex items-center gap-2">
+                      <input type="checkbox" [(ngModel)]="jobForm.wolShutdownAfter" class="accent-[#38bdf8]" />
+                      <span>Spegni PC/NAS al termine del backup (via SSH)</span>
+                    </label>
+                    @if (jobForm.wolShutdownAfter) {
+                      <label class="flex items-center gap-2">
+                        <input type="checkbox" [(ngModel)]="jobForm.wolShutdownOnlyIfWoken" class="accent-[#38bdf8]" />
+                        <span>Spegni solo se è stato acceso da SiloOs</span>
+                      </label>
+                    }
+                  </div>
+
+                  @if (jobForm.wolShutdownAfter) {
+                    <div>
+                      <label class="block text-[11px] text-slate-400">Utente SSH remoto</label>
+                      <input
+                        type="text"
+                        [(ngModel)]="jobForm.wolSshUser"
+                        placeholder="es. root o admin"
+                        class="mt-1 w-full rounded-xl border border-white/10 bg-black/40 px-3 py-1.5 font-mono text-xs text-white"
+                      />
+                    </div>
+                    <div>
+                      <label class="block text-[11px] text-slate-400">Comando spegnimento remoto</label>
+                      <input
+                        type="text"
+                        [(ngModel)]="jobForm.wolShutdownCmd"
+                        placeholder="sudo -n poweroff || poweroff"
+                        class="mt-1 w-full rounded-xl border border-white/10 bg-black/40 px-3 py-1.5 font-mono text-xs text-white"
+                      />
+                    </div>
+
+                    @if (sshPublicKey()) {
+                      <div class="sm:col-span-2 rounded-xl border border-white/10 bg-slate-950/70 p-3 space-y-1.5">
+                        <div class="flex items-center justify-between gap-2">
+                          <span class="text-[11px] font-medium text-slate-300">
+                            🔑 Chiave SSH SiloOs (aggiungila a <span class="font-mono text-sky-300">~/.ssh/authorized_keys</span> sul NAS di backup)
+                          </span>
+                          <button
+                            type="button"
+                            (click)="copySshKey()"
+                            class="rounded-lg border border-white/15 bg-white/5 px-2.5 py-1 text-[10px] text-slate-200 hover:bg-white/10"
+                          >
+                            📋 Copia
+                          </button>
+                        </div>
+                        <div class="break-all font-mono text-[10px] text-emerald-300/90">
+                          {{ sshPublicKey() }}
+                        </div>
+                      </div>
+                    }
+                  }
+                </div>
+              }
+            </div>
+
             <div class="flex justify-end">
               <button
                 type="button"
@@ -278,6 +404,11 @@ type BackupTab = 'jobs' | 'repos' | 'snapshots';
                     <span class="rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-slate-300">
                       {{ scheduleLabel(job) }}
                     </span>
+                    @if (job.remotePower?.enabled) {
+                      <span class="rounded-full bg-purple-500/20 px-2 py-0.5 text-[10px] font-medium text-purple-300">
+                        ⚡ WoL{{ job.remotePower?.shutdownAfter ? ' + Auto-Shutdown' : '' }}
+                      </span>
+                    }
                     @if (job.lastStatus === 'ok') {
                       <span class="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-semibold text-emerald-300">
                         ✓ OK
@@ -596,6 +727,7 @@ export class BackupManagerComponent implements OnInit {
   snapshots = signal<ResticSnapshot[]>([]);
   mountedDisks = signal<MountedDisk[]>([]);
   networkMounts = signal<NetworkMountEntry[]>([]);
+  sshPublicKey = signal<string | null>(null);
   selectedSnapRepoId = '';
 
   feedback = signal<string | null>(null);
@@ -637,6 +769,15 @@ export class BackupManagerComponent implements OnInit {
     keepDaily: number;
     keepWeekly: number;
     keepMonthly: number;
+    remotePowerEnabled: boolean;
+    wolMac: string;
+    wolHost: string;
+    wolCheckPort: number;
+    wolAutoMountName: string;
+    wolShutdownAfter: boolean;
+    wolShutdownOnlyIfWoken: boolean;
+    wolSshUser: string;
+    wolShutdownCmd: string;
   } = {
     name: 'Backup Giornaliero NAS',
     repoId: '',
@@ -647,6 +788,15 @@ export class BackupManagerComponent implements OnInit {
     keepDaily: 7,
     keepWeekly: 4,
     keepMonthly: 6,
+    remotePowerEnabled: false,
+    wolMac: '',
+    wolHost: '',
+    wolCheckPort: 2049,
+    wolAutoMountName: '',
+    wolShutdownAfter: true,
+    wolShutdownOnlyIfWoken: true,
+    wolSshUser: 'root',
+    wolShutdownCmd: 'sudo -n poweroff || poweroff',
   };
 
   ngOnInit(): void {
@@ -840,6 +990,43 @@ export class BackupManagerComponent implements OnInit {
     }
   }
 
+  onRemotePowerToggled(enabled: boolean): void {
+    if (enabled && !this.sshPublicKey()) {
+      this.api.getBackupSshKey().subscribe({
+        next: (res) => this.sshPublicKey.set(res.publicKey),
+        error: () => {},
+      });
+    }
+    if (enabled && !this.jobForm.wolHost && this.networkMounts().length > 0) {
+      const first = this.networkMounts()[0];
+      this.jobForm.wolHost = first.host;
+      this.jobForm.wolCheckPort = first.protocol === 'nfs' ? 2049 : 445;
+      this.jobForm.wolAutoMountName = first.name;
+    }
+  }
+
+  testWol(): void {
+    this.api.testWakeOnLan(this.jobForm.wolMac).subscribe({
+      next: (res) => {
+        this.feedbackOk.set(true);
+        this.feedback.set(res.message);
+      },
+      error: (err) => {
+        this.feedbackOk.set(false);
+        this.feedback.set(err?.error?.error ?? 'Errore invio Wake-on-LAN');
+      },
+    });
+  }
+
+  copySshKey(): void {
+    const key = this.sshPublicKey();
+    if (!key) return;
+    navigator.clipboard?.writeText(key).then(() => {
+      this.feedbackOk.set(true);
+      this.feedback.set('Chiave pubblica SSH copiata negli appunti!');
+    });
+  }
+
   createJob(): void {
     const extra = this.jobForm.extraSources
       .split(',')
@@ -866,6 +1053,22 @@ export class BackupManagerComponent implements OnInit {
         keepWeekly: this.jobForm.keepWeekly,
         keepMonthly: this.jobForm.keepMonthly,
         enabled: true,
+        remotePower: this.jobForm.remotePowerEnabled
+          ? {
+              enabled: true,
+              macAddress: this.jobForm.wolMac.trim(),
+              host: this.jobForm.wolHost.trim(),
+              checkPort: Number(this.jobForm.wolCheckPort) || 2049,
+              waitTimeoutSec: 150,
+              autoMountNetworkName: this.jobForm.wolAutoMountName || undefined,
+              shutdownAfter: this.jobForm.wolShutdownAfter,
+              shutdownOnlyIfWoken: this.jobForm.wolShutdownOnlyIfWoken,
+              sshUser: this.jobForm.wolSshUser.trim() || 'root',
+              sshPort: 22,
+              shutdownCommand:
+                this.jobForm.wolShutdownCmd.trim() || 'sudo -n poweroff || poweroff',
+            }
+          : undefined,
       })
       .subscribe({
         next: (res) => {

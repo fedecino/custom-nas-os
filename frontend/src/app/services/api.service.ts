@@ -257,6 +257,20 @@ export interface BackupRepositoryView {
   createdAt: string;
 }
 
+export interface RemotePowerConfig {
+  enabled: boolean;
+  macAddress: string;
+  host: string;
+  checkPort: number;
+  waitTimeoutSec: number;
+  autoMountNetworkName?: string;
+  shutdownAfter: boolean;
+  shutdownOnlyIfWoken: boolean;
+  sshUser: string;
+  sshPort: number;
+  shutdownCommand: string;
+}
+
 export interface BackupJob {
   id: string;
   name: string;
@@ -269,6 +283,7 @@ export interface BackupJob {
   keepWeekly: number;
   keepMonthly: number;
   enabled: boolean;
+  remotePower?: RemotePowerConfig;
   lastRunAt: string | null;
   lastStatus: 'ok' | 'error' | 'running' | null;
   lastMessage: string | null;
@@ -300,6 +315,32 @@ export interface NetworkMountEntry {
   username?: string;
   persistFstab: boolean;
   mounted?: boolean;
+}
+
+export type FanMode = 'bios' | 'curve' | 'manual';
+export type FanProfile = 'silent' | 'balanced' | 'performance';
+
+export interface FanControlConfig {
+  mode: FanMode;
+  profile: FanProfile;
+  manualPercent: number;
+}
+
+export interface FanStatusResponse {
+  sensorsInstalled: boolean;
+  temps: Array<{ id: string; chip: string; label: string; tempC: number }>;
+  fans: Array<{ id: string; chip: string; label: string; rpm: number }>;
+  pwms: Array<{
+    id: string;
+    chip: string;
+    path: string;
+    enablePath: string;
+    percent: number;
+    enableMode: number;
+  }>;
+  maxTempC: number | null;
+  config: FanControlConfig;
+  targetPercent: number | null;
 }
 
 export interface NetworkInterfaceConfig {
@@ -828,6 +869,44 @@ export class ApiService {
   runBackupJob(id: string): Observable<{ success: boolean; output: string; job: BackupJob }> {
     return this.http.post<{ success: boolean; output: string; job: BackupJob }>(
       `/api/backups/jobs/${encodeURIComponent(id)}/run`,
+      {}
+    );
+  }
+
+  getBackupSshKey(): Observable<{ publicKey: string }> {
+    return this.http.get<{ publicKey: string }>('/api/backups/ssh-key');
+  }
+
+  testWakeOnLan(macAddress: string): Observable<{ success: boolean; message: string }> {
+    return this.http.post<{ success: boolean; message: string }>('/api/backups/wol-test', {
+      macAddress,
+    });
+  }
+
+  // Fan & Temperature Control (hwmon / lm-sensors)
+  getFanStatus(): Observable<FanStatusResponse> {
+    return this.http.get<FanStatusResponse>('/api/fans/status');
+  }
+
+  saveFanConfig(payload: FanControlConfig): Observable<{
+    success: boolean;
+    config: FanControlConfig;
+    appliedCount: number;
+    targetPercent: number | null;
+    warnings: string[];
+  }> {
+    return this.http.put<{
+      success: boolean;
+      config: FanControlConfig;
+      appliedCount: number;
+      targetPercent: number | null;
+      warnings: string[];
+    }>('/api/fans/config', payload);
+  }
+
+  installFanSensors(): Observable<{ success: boolean; sensorsInstalled: boolean }> {
+    return this.http.post<{ success: boolean; sensorsInstalled: boolean }>(
+      '/api/fans/install-sensors',
       {}
     );
   }

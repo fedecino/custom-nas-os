@@ -4,6 +4,7 @@ import express from 'express';
 import aiRouter from './routes/ai.js';
 import authRouter, { requireAuth } from './routes/auth.js';
 import backupsRouter, { startBackupScheduler } from './routes/backups.js';
+import fansRouter, { startFanControllerLoop } from './routes/fans.js';
 import filesRouter from './routes/files.js';
 import hubRouter from './routes/hub.js';
 import settingsRouter from './routes/settings.js';
@@ -53,6 +54,7 @@ app.use('/api/settings', settingsRouter);
 app.use('/api/ai', aiRouter);
 app.use('/api/files', filesRouter);
 app.use('/api/backups', backupsRouter);
+app.use('/api/fans', fansRouter);
 
 async function start(): Promise<void> {
   try {
@@ -68,6 +70,7 @@ async function start(): Promise<void> {
     console.log(`SiloOs Backend listening on http://0.0.0.0:${PORT}`);
     systemEvents.startBlockDeviceMonitor();
     startBackupScheduler();
+    startFanControllerLoop();
   });
 }
 

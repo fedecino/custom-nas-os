@@ -23,6 +23,7 @@ import { SharesManagerComponent } from '../shares-manager/shares-manager.compone
 import { UsersManagerComponent } from '../users-manager/users-manager.component';
 import { ServicesManagerComponent } from '../services-manager/services-manager.component';
 import { BackupManagerComponent } from '../backup-manager/backup-manager.component';
+import { FanManagerComponent } from '../fan-manager/fan-manager.component';
 
 export type SettingsCategory =
   | 'desktop'
@@ -33,6 +34,7 @@ export type SettingsCategory =
   | 'services'
   | 'network'
   | 'backups'
+  | 'fans'
   | 'ai'
   | 'updates';
 
@@ -47,6 +49,7 @@ export type SettingsCategory =
     UsersManagerComponent,
     ServicesManagerComponent,
     BackupManagerComponent,
+    FanManagerComponent,
   ],
   template: `
     @if (!isAdmin) {
@@ -265,6 +268,11 @@ export type SettingsCategory =
         <!-- CATEGORY: Backup (Restic) -->
         @if (activeCategory() === 'backups') {
           <app-backup-manager />
+        }
+
+        <!-- CATEGORY: Ventole & Temperature -->
+        @if (activeCategory() === 'fans') {
+          <app-fan-manager />
         }
 
         <!-- CATEGORY 3: Rete & Sistema -->
@@ -820,6 +828,7 @@ export class SettingsAppComponent implements OnInit {
       { id: 'services', label: 'Servizi & Firewall', subtitle: 'Porte, Nginx & UFW', icon: '🔌' },
       { id: 'network', label: 'Rete & Hostname', subtitle: 'IP & Interfacce', icon: '🌐' },
       { id: 'backups', label: 'Backup (Restic)', subtitle: 'Snapshot & Ripristino', icon: '💾' },
+      { id: 'fans', label: 'Ventole & Temp', subtitle: 'PWM & Sensori', icon: '🌀' },
       { id: 'ai', label: 'Assistente AI', subtitle: 'Cloud o LLM Locale', icon: '🤖' },
       { id: 'updates', label: 'Aggiornamenti', subtitle: 'SiloOs & Debian', icon: '🔄' },
     ];

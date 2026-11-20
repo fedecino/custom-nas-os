@@ -15,6 +15,7 @@ jq
 git
 rsync
 restic
+lm-sensors
 grub-efi-amd64
 grub-pc-bin
 efibootmgr
