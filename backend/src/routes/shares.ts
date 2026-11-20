@@ -59,10 +59,15 @@ async function applySystemShareConfigs(shares: NasShare[]): Promise<{
   let sambaApplied = false;
   let nfsApplied = false;
 
+  // Ensure shared group exists for Samba permissions (replaces insecure `force user = root`)
+  await execFileAsync('groupadd', ['-f', 'silo-shares'], { timeout: 5000 }).catch(() => {});
+
   // 1. Apply Samba configuration
   const smbBlocks = shares
     .filter((s) => s.smb)
     .map((s) => {
+      const safeComment = String(s.comment || s.name).replace(/[\r\n]/g, ' ').trim();
+      const safePath = String(s.path).replace(/[\r\n]/g, '').trim();
       const permEntries = Object.entries(s.userPermissions ?? {}).filter(
         ([u]) => /^[a-z_][a-z0-9_-]{0,30}$/.test(u)
       );
@@ -73,17 +78,17 @@ async function applySystemShareConfigs(shares: NasShare[]): Promise<{
 
       const lines = [
         `[${s.name}]`,
-        `   comment = ${s.comment || s.name}`,
-        `   path = ${s.path}`,
+        `   comment = ${safeComment}`,
+        `   path = ${safePath}`,
         `   browseable = ${hasPerUserPerms && allowedUsers.length === 0 ? 'no' : 'yes'}`,
         `   access based share enum = yes`,
         `   guest ok = ${s.guestOk ? 'yes' : 'no'}`,
         `   create mask = 0664`,
-        `   directory mask = 0775`,
+        `   directory mask = 2775`,
       ];
 
       if (!s.guestOk) {
-        lines.push(`   force user = root`);
+        lines.push(`   force group = silo-shares`);
       }
 
       if (hasPerUserPerms) {
@@ -155,13 +160,15 @@ async function applySystemShareConfigs(shares: NasShare[]): Promise<{
     );
   }
 
-  // 2. Apply NFS exports
+  // 2. Apply NFS exports (root_squash by default for security; sanitize clients against injection)
   const nfsLines = shares
     .filter((s) => s.nfs)
     .map((s) => {
-      const clients = s.nfsClients?.trim() || '*';
+      const rawClients = (s.nfsClients?.trim() || '*').replace(/[\r\n()]/g, '');
+      const clients = /^[a-zA-Z0-9.*:/_-]+$/.test(rawClients) ? rawClients : '*';
+      const safePath = String(s.path).replace(/[\r\n]/g, '').trim();
       const mode = s.readOnly ? 'ro' : 'rw';
-      return `${s.path} ${clients}(${mode},sync,no_subtree_check,no_root_squash)`;
+      return `${safePath} ${clients}(${mode},sync,no_subtree_check,root_squash)`;
     })
     .join('\n');
 
@@ -243,7 +250,9 @@ router.post('/', requireAdmin, async (req: Request, res: Response) => {
 
   try {
     await fs.mkdir(sharePath, { recursive: true });
-    await fs.chmod(sharePath, 0o775).catch(() => {});
+    await execFileAsync('groupadd', ['-f', 'silo-shares'], { timeout: 5000 }).catch(() => {});
+    await execFileAsync('chgrp', ['silo-shares', sharePath], { timeout: 5000 }).catch(() => {});
+    await fs.chmod(sharePath, 0o2775).catch(() => {});
 
     const shares = await readShares();
     const newShare: NasShare = {

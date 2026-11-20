@@ -4,6 +4,7 @@ import net from 'node:net';
 import path from 'node:path';
 import YAML from 'yaml';
 import { DATA_DIR, validateComposeYaml } from './docker.js';
+import { assertSafeExternalUrl } from './security.js';
 
 export type AppStoreCategory =
   | 'Media'
@@ -207,7 +208,7 @@ const BUILTIN_APPS: StoreAppTemplate[] = [
     restart: unless-stopped
     environment:
       - ADMIN_TOKEN=\${RANDOM_SECRET}
-      - SIGNUPS_ALLOWED=true
+      - SIGNUPS_ALLOWED=false
     volumes:
       - \${APP_DATA}/data:/data
     ports:
@@ -550,6 +551,7 @@ export async function syncAppStoreFromRepo(repoUrl?: string): Promise<{
   lastSynced: string;
 }> {
   const targetUrl = (repoUrl?.trim() || DEFAULT_APPSTORE_REPO).trim();
+  await assertSafeExternalUrl(targetUrl);
   const res = await fetch(targetUrl, {
     headers: { Accept: 'application/json' },
     signal: AbortSignal.timeout(10000),
@@ -617,14 +619,15 @@ export async function renderStoreAppCompose(appId: string): Promise<{
 
 export async function fetchComposeFromUrl(rawUrl: string): Promise<string> {
   const trimmed = rawUrl.trim();
-  if (!/^https?:\/\/.+/.test(trimmed)) {
-    throw new Error('Inserisci un URL http:// o https:// valido');
-  }
+  await assertSafeExternalUrl(trimmed);
   const res = await fetch(trimmed, { signal: AbortSignal.timeout(10000) });
   if (!res.ok) {
     throw new Error(`Download YAML fallito (HTTP ${res.status})`);
   }
   const content = await res.text();
+  if (Buffer.byteLength(content, 'utf-8') > 512 * 1024) {
+    throw new Error('Il file YAML supera il limite massimo consentito (512 KB)');
+  }
   validateComposeYaml(content);
   return content;
 }

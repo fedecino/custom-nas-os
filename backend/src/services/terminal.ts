@@ -4,6 +4,8 @@ import http from 'node:http';
 import { Writable } from 'node:stream';
 import { WebSocketServer, WebSocket } from 'ws';
 import { authenticateCookieHeader } from '../routes/auth.js';
+import { isUserAdmin } from '../routes/settings.js';
+import { auditLog } from './security.js';
 
 interface LinuxUserEntry {
   username: string;
@@ -71,9 +73,7 @@ if pid == 0:
             os.environ['USER'] = target_user
             os.environ['LOGNAME'] = target_user
 
-    shell = target_shell if os.path.exists(target_shell) and 'nologin' not in target_shell and 'false' not in target_shell else '/bin/bash'
-    if not os.path.exists(shell):
-        shell = '/bin/sh'
+    shell = target_shell if os.path.exists(target_shell) else '/bin/bash'
     os.execvp(shell, [shell, '-l'])
 else:
     os.close(slave)
@@ -128,6 +128,10 @@ function spawnPtyShell(username: string): { proc: ChildProcess; ctlStream: Writa
     throw new Error(`Utente di sistema "${username}" non trovato`);
   }
 
+  if (userEntry && (userEntry.shell.includes('nologin') || userEntry.shell.endsWith('/false'))) {
+    throw new Error(`Accesso terminale disabilitato per l'utente "${username}"`);
+  }
+
   const startDir =
     userEntry && fs.existsSync(userEntry.home)
       ? userEntry.home
@@ -136,7 +140,8 @@ function spawnPtyShell(username: string): { proc: ChildProcess; ctlStream: Writa
       : process.env.HOME || '/';
 
   const env: NodeJS.ProcessEnv = {
-    ...process.env,
+    PATH: process.env.PATH || '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+    LANG: process.env.LANG || 'C.UTF-8',
     TERM: 'xterm-256color',
     COLORTERM: 'truecolor',
     ...(userEntry
@@ -193,6 +198,24 @@ export function attachTerminalWebSocket(server: http.Server): void {
     }
 
     try {
+      // Cross-Site WebSocket Hijacking (CSWSH) protection: validate Origin matches Host
+      const originHeader = req.headers.origin;
+      const hostHeader = req.headers.host;
+      if (originHeader && hostHeader) {
+        try {
+          const originHost = new URL(originHeader).host;
+          if (originHost !== hostHeader) {
+            socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+            socket.destroy();
+            return;
+          }
+        } catch {
+          socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+          socket.destroy();
+          return;
+        }
+      }
+
       const session = await authenticateCookieHeader(req.headers.cookie);
       if (!session) {
         socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
@@ -200,6 +223,14 @@ export function attachTerminalWebSocket(server: http.Server): void {
         return;
       }
 
+      const admin = await isUserAdmin(session.username);
+      if (!admin) {
+        socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+        socket.destroy();
+        return;
+      }
+
+      await auditLog('terminal.open', { username: session.username });
       wss.handleUpgrade(req, socket, head, (ws) => {
         wss.emit('connection', ws, req, session.username);
       });

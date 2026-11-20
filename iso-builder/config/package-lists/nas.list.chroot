@@ -7,6 +7,8 @@ rfkill
 openssh-server
 sudo
 ufw
+fail2ban
+unattended-upgrades
 avahi-daemon
 ca-certificates
 curl

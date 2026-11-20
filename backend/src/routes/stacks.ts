@@ -9,8 +9,10 @@ import {
   validateComposeYaml,
   validateStackName,
 } from '../services/docker.js';
+import { requireAdmin } from './auth.js';
 
 const router = Router();
+router.use(requireAdmin);
 
 router.get('/', async (_req: Request, res: Response) => {
   try {

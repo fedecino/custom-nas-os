@@ -223,6 +223,7 @@ export interface SystemUpdateStatus {
   latestReleaseDate: string | null;
   latestReleaseNotes: string | null;
   updateAvailable: boolean;
+  rebootRequired?: boolean;
 }
 
 export interface ProxyRoute {
@@ -1483,5 +1484,13 @@ export class ApiService {
 
   triggerInstallPower(action: 'reboot' | 'poweroff'): Observable<{ success: boolean }> {
     return this.http.post<{ success: boolean }>('/api/install/power', { action });
+  }
+
+  getRebootStatus(): Observable<{ rebootRequired: boolean; packages: string[] }> {
+    return this.http.get<{ rebootRequired: boolean; packages: string[] }>('/api/system/reboot-status');
+  }
+
+  rebootSystem(): Observable<{ success: boolean; message: string }> {
+    return this.http.post<{ success: boolean; message: string }>('/api/system/reboot', {});
   }
 }

@@ -4,6 +4,8 @@ set -euo pipefail
 echo "[NAS-OS Hook] Creating /DATA directory structure..."
 mkdir -p /DATA/AppData /DATA/Stacks /DATA/Media /DATA/Shares /DATA/Disks /DATA/.nas-os
 chmod 755 /DATA /DATA/AppData /DATA/Stacks /DATA/Media /DATA/Shares /DATA/Disks
+chmod 700 /DATA/.nas-os
+groupadd -f silo-shares || true
 
 echo "[NAS-OS Hook] Configuring Samba & NFS directories..."
 mkdir -p /etc/samba/smb.d /etc/exports.d
@@ -32,11 +34,24 @@ chmod +x /usr/local/sbin/nas-os-usb-mount || true
 chmod +x /usr/local/sbin/nas-os-update || true
 chmod +x /etc/NetworkManager/dispatcher.d/99-nas-os-banner || true
 
+echo "[NAS-OS Hook] Applying SSH & Firewall baseline hardening..."
+mkdir -p /etc/ssh/sshd_config.d
+cat > /etc/ssh/sshd_config.d/99-siloos-hardening.conf <<'SSH_EOF'
+PermitRootLogin no
+MaxAuthTries 3
+LoginGraceTime 30
+X11Forwarding no
+ClientAliveInterval 300
+ClientAliveCountMax 2
+SSH_EOF
+
 echo "[NAS-OS Hook] Enabling systemd services..."
 systemctl enable NetworkManager.service || true
 systemctl enable ssh.service || true
 systemctl enable smbd.service || true
 systemctl enable nfs-kernel-server.service || true
+systemctl disable vsftpd.service || true
+systemctl enable fail2ban.service || true
 systemctl enable docker.service || true
 systemctl enable nginx.service || true
 systemctl enable nas-os.service || true

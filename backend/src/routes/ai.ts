@@ -3,7 +3,9 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { Router, Request, Response } from 'express';
+import { requireAdmin } from './auth.js';
 import { isUserAdmin, readFullSettings } from './settings.js';
+import { resolveRealPathSafe } from '../services/security.js';
 import {
   DATA_DIR,
   STACKS_DIR,
@@ -18,7 +20,7 @@ import { inspectImage, searchRepositories } from '../services/registry.js';
 const execFileAsync = promisify(execFile);
 const router = Router();
 const LOCAL_PORT = Number(process.env.PORT ?? 3000);
-const AI_CHATS_FILE = path.join(DATA_DIR, '.nas-os', 'ai-chats.json');
+const AI_CHATS_DIR = path.join(DATA_DIR, '.nas-os', 'ai-chats');
 
 interface StoredAiChat {
   id: string;
@@ -31,9 +33,15 @@ interface StoredAiChat {
   }>;
 }
 
-async function readChats(): Promise<StoredAiChat[]> {
+function getUserChatFile(req: Request): string {
+  const rawUser = (req as Request & { user?: string }).user || 'default';
+  const safeUser = rawUser.replace(/[^a-zA-Z0-9_-]/g, '_');
+  return path.join(AI_CHATS_DIR, `${safeUser}.json`);
+}
+
+async function readChats(req: Request): Promise<StoredAiChat[]> {
   try {
-    const raw = await fs.readFile(AI_CHATS_FILE, 'utf-8');
+    const raw = await fs.readFile(getUserChatFile(req), 'utf-8');
     const parsed = JSON.parse(raw) as StoredAiChat[];
     return Array.isArray(parsed) ? parsed : [];
   } catch {
@@ -41,9 +49,12 @@ async function readChats(): Promise<StoredAiChat[]> {
   }
 }
 
-async function saveChats(chats: StoredAiChat[]): Promise<void> {
-  await fs.mkdir(path.dirname(AI_CHATS_FILE), { recursive: true });
-  await fs.writeFile(AI_CHATS_FILE, JSON.stringify(chats.slice(0, 30), null, 2), 'utf-8');
+async function saveChats(req: Request, chats: StoredAiChat[]): Promise<void> {
+  await fs.mkdir(AI_CHATS_DIR, { recursive: true, mode: 0o700 });
+  await fs.writeFile(getUserChatFile(req), JSON.stringify(chats.slice(0, 30), null, 2), {
+    encoding: 'utf-8',
+    mode: 0o600,
+  });
 }
 
 interface ChatMessage {
@@ -58,13 +69,13 @@ interface ChatMessage {
   }>;
 }
 
-function resolveDockerAllowedPath(rawPath: string): string {
+async function resolveDockerAllowedPath(rawPath: string): Promise<string> {
   const cleaned = String(rawPath ?? '').trim();
   const candidate = path.isAbsolute(cleaned)
-    ? path.resolve(cleaned)
-    : path.resolve(DATA_DIR, cleaned);
-  const stacksRoot = path.resolve(STACKS_DIR);
-  const appDataRoot = path.resolve(path.join(DATA_DIR, 'AppData'));
+    ? await resolveRealPathSafe(cleaned)
+    : await resolveRealPathSafe(path.resolve(DATA_DIR, cleaned));
+  const stacksRoot = await resolveRealPathSafe(STACKS_DIR);
+  const appDataRoot = await resolveRealPathSafe(path.join(DATA_DIR, 'AppData'));
   const inStacks = candidate === stacksRoot || candidate.startsWith(`${stacksRoot}/`);
   const inAppData = candidate === appDataRoot || candidate.startsWith(`${appDataRoot}/`);
   if (!inStacks && !inAppData) {
@@ -357,7 +368,7 @@ async function executeTool(
       return { stackName, logs: (stdout + '\n' + stderr).trim() };
     }
     case 'read_docker_app_file': {
-      const resolved = resolveDockerAllowedPath(String(args.filePath ?? ''));
+      const resolved = await resolveDockerAllowedPath(String(args.filePath ?? ''));
       const content = await fs.readFile(resolved, 'utf-8');
       return { filePath: resolved, content: content.slice(0, 16000) };
     }
@@ -377,7 +388,7 @@ async function executeTool(
       };
     }
     case 'write_docker_app_file': {
-      const resolved = resolveDockerAllowedPath(String(args.filePath ?? ''));
+      const resolved = await resolveDockerAllowedPath(String(args.filePath ?? ''));
       const content = String(args.content ?? '');
       await fs.mkdir(path.dirname(resolved), { recursive: true });
       await fs.writeFile(resolved, content, 'utf-8');
@@ -474,7 +485,7 @@ async function callChatCompletion(
   };
 }
 
-router.post('/test', async (req: Request, res: Response) => {
+router.post('/test', requireAdmin, async (req: Request, res: Response) => {
   try {
     const saved = await readFullSettings();
     const body = req.body as {
@@ -508,15 +519,15 @@ router.post('/test', async (req: Request, res: Response) => {
   }
 });
 
-router.get('/history', async (_req: Request, res: Response) => {
-  const chats = await readChats();
+router.get('/history', async (req: Request, res: Response) => {
+  const chats = await readChats(req);
   res.json({ chats });
 });
 
 router.delete('/history/:id', async (req: Request, res: Response) => {
   const id = String(req.params.id ?? '');
-  const chats = await readChats();
-  await saveChats(chats.filter((c) => c.id !== id));
+  const chats = await readChats(req);
+  await saveChats(req, chats.filter((c) => c.id !== id));
   res.json({ success: true });
 });
 
@@ -585,7 +596,7 @@ router.post('/chat', async (req: Request, res: Response) => {
         { role: 'assistant', content: replyText, toolCalls: executedTools },
       ];
 
-      const chats = await readChats();
+      const chats = await readChats(req);
       const filtered = chats.filter((c) => c.id !== chatId);
       const nextChat: StoredAiChat = {
         id: chatId,
@@ -593,7 +604,7 @@ router.post('/chat', async (req: Request, res: Response) => {
         updatedAt: new Date().toISOString(),
         messages: updatedMessages,
       };
-      await saveChats([nextChat, ...filtered]);
+      await saveChats(req, [nextChat, ...filtered]);
       return chatId;
     };
 

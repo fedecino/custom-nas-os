@@ -13,7 +13,7 @@ fi
 if [ "$ACTION" = "add" ]; then
   [ -f "$FLAG_FILE" ] || exit 0
   mkdir -p "$MOUNT_DIR"
-  systemd-mount --no-block --automount=no "/dev/${DEVNAME_SHORT}" "$MOUNT_DIR" || true
+  systemd-mount --no-block --automount=no -o nodev,nosuid,noexec "/dev/${DEVNAME_SHORT}" "$MOUNT_DIR" || true
 elif [ "$ACTION" = "remove" ]; then
   if mountpoint -q "$MOUNT_DIR"; then
     umount -l "$MOUNT_DIR" || true

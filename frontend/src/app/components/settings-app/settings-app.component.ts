@@ -666,6 +666,25 @@ export type SettingsCategory =
               </button>
             </div>
 
+            @if (rebootRequired() || updateStatus()?.rebootRequired) {
+              <div class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-400/40 bg-amber-500/15 px-4 py-3 text-xs text-amber-100">
+                <div>
+                  <div class="font-semibold text-amber-300">⚠️ Riavvio del sistema richiesto</div>
+                  <div class="mt-0.5 text-[11px] text-amber-100/80">
+                    Alcuni aggiornamenti di sistema o del kernel Debian richiedono il riavvio del NAS per diventare attivi.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  (click)="triggerSystemReboot()"
+                  [disabled]="rebootingSystem()"
+                  class="rounded-xl bg-amber-400 px-3.5 py-1.5 text-xs font-semibold text-slate-950 hover:bg-amber-300 disabled:opacity-50"
+                >
+                  {{ rebootingSystem() ? 'Riavvio in corso...' : '🔄 Riavvia NAS ora' }}
+                </button>
+              </div>
+            }
+
             @if (updateStatus(); as st) {
               <div class="rounded-xl border border-white/10 bg-black/30 p-4 text-xs space-y-2.5">
                 <div class="flex flex-wrap items-center justify-between gap-2">
@@ -852,6 +871,8 @@ export class SettingsAppComponent implements OnInit {
   showAuthPrompt = signal(false);
   authPassword = '';
   updateError = signal<string | null>(null);
+  rebootRequired = signal(false);
+  rebootingSystem = signal(false);
 
   aiEnabled = false;
   aiProvider: AiSettingsView['providerType'] = 'ollama';
@@ -1324,12 +1345,30 @@ export class SettingsAppComponent implements OnInit {
     this.pollUpdateUntilDone();
   }
 
+  async triggerSystemReboot(): Promise<void> {
+    this.rebootingSystem.set(true);
+    this.api.rebootSystem().subscribe({
+      next: () => {
+        this.feedbackOk.set(true);
+        this.feedback.set('Riavvio del NAS in corso... La pagina tornerà disponibile tra circa 30-60 secondi.');
+      },
+      error: (err) => {
+        this.rebootingSystem.set(false);
+        this.feedbackOk.set(false);
+        this.feedback.set(err?.error?.error || 'Impossibile riavviare il sistema');
+      },
+    });
+  }
+
   private pollUpdateUntilDone(): void {
     let sawDoneOrRestart = false;
     const timer = setInterval(() => {
       this.api.getSystemUpdateProgress().subscribe({
         next: (prog) => {
           if (prog.message) this.updateStage.set(prog.message);
+          if ((prog as { rebootRequired?: boolean }).rebootRequired) {
+            this.rebootRequired.set(true);
+          }
 
           if (prog.state === 'error') {
             clearInterval(timer);
@@ -1342,10 +1381,17 @@ export class SettingsAppComponent implements OnInit {
           if (prog.state === 'done') {
             if (sawDoneOrRestart) {
               clearInterval(timer);
-              this.updateStage.set('✓ Aggiornamento completato! Ricaricamento pagina...');
+              const needsReboot = Boolean((prog as { rebootRequired?: boolean }).rebootRequired);
+              this.updateStage.set(
+                needsReboot
+                  ? '✓ Aggiornamento completato! È richiesto il riavvio del NAS.'
+                  : '✓ Aggiornamento completato! Ricaricamento pagina...'
+              );
               setTimeout(() => {
                 this.updatingSystem.set(false);
-                window.location.href = window.location.pathname;
+                if (!needsReboot) {
+                  window.location.href = window.location.pathname;
+                }
               }, 1200);
             } else {
               sawDoneOrRestart = true;

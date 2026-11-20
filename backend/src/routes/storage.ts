@@ -104,7 +104,7 @@ router.get('/disks', async (_req: Request, res: Response) => {
   }
 });
 
-router.get('/smart', async (req: Request, res: Response) => {
+router.get('/smart', requireAdmin, async (req: Request, res: Response) => {
   const device = String(req.query.device ?? '').trim();
   if (!SAFE_DEV_REGEX.test(device)) {
     res.status(400).json({ error: 'Invalid device path (expected e.g. /dev/sda)' });
@@ -133,7 +133,7 @@ router.get('/smart', async (req: Request, res: Response) => {
   }
 });
 
-router.post('/mount', async (req: Request, res: Response) => {
+router.post('/mount', requireAdmin, async (req: Request, res: Response) => {
   const { device, label, persistFstab } = req.body as {
     device?: string;
     label?: string;
@@ -182,7 +182,7 @@ router.post('/mount', async (req: Request, res: Response) => {
   }
 });
 
-router.post('/unmount', async (req: Request, res: Response) => {
+router.post('/unmount', requireAdmin, async (req: Request, res: Response) => {
   const { mountpoint, removeFstab } = req.body as {
     mountpoint?: string;
     removeFstab?: boolean;
@@ -320,7 +320,7 @@ router.post('/format', requireAdmin, async (req: Request, res: Response) => {
   }
 });
 
-router.get('/browse', async (req: Request, res: Response) => {
+router.get('/browse', requireAdmin, async (req: Request, res: Response) => {
   const requested = String(req.query.path ?? DATA_DIR).trim() || DATA_DIR;
   const resolved = path.resolve(requested);
 
@@ -346,7 +346,7 @@ router.get('/browse', async (req: Request, res: Response) => {
   }
 });
 
-router.post('/mkdir', async (req: Request, res: Response) => {
+router.post('/mkdir', requireAdmin, async (req: Request, res: Response) => {
   const { parentPath, folderName } = req.body as {
     parentPath?: string;
     folderName?: string;
@@ -404,7 +404,7 @@ router.get('/raid', async (_req: Request, res: Response) => {
   }
 });
 
-router.post('/raid/import', async (req: Request, res: Response) => {
+router.post('/raid/import', requireAdmin, async (req: Request, res: Response) => {
   const { type, poolName } = req.body as {
     type?: 'mdadm' | 'zfs';
     poolName?: string;
@@ -445,7 +445,7 @@ router.get('/usb-automount', async (_req: Request, res: Response) => {
   }
 });
 
-router.post('/usb-automount', async (req: Request, res: Response) => {
+router.post('/usb-automount', requireAdmin, async (req: Request, res: Response) => {
   const enabled = Boolean((req.body as { enabled?: boolean }).enabled);
   try {
     await fs.mkdir(path.dirname(USB_AUTOMOUNT_FLAG), { recursive: true });

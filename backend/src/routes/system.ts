@@ -5,6 +5,8 @@ import { promisify } from 'node:util';
 import { Router, Request, Response } from 'express';
 import { listContainers } from '../services/docker.js';
 import { SystemNotification, systemEvents } from '../services/events.js';
+import { auditLog } from '../services/security.js';
+import { requireAdmin } from './auth.js';
 
 const execFileAsync = promisify(execFile);
 const router = Router();
@@ -371,7 +373,7 @@ function describeListeningPort(
   return byPort[port] ?? `Servizio di sistema (${processName})`;
 }
 
-router.get('/ports', async (_req: Request, res: Response) => {
+router.get('/ports', requireAdmin, async (_req: Request, res: Response) => {
   try {
     const [ssRes, containers, serviceStatuses] = await Promise.all([
       execFileAsync('ss', ['-tulnp'], { timeout: 5000 }).catch(() => ({ stdout: '' })),
@@ -451,7 +453,7 @@ router.get('/ports', async (_req: Request, res: Response) => {
   }
 });
 
-router.post('/services/:name/:action', async (req: Request, res: Response) => {
+router.post('/services/:name/:action', requireAdmin, async (req: Request, res: Response) => {
   const name = String(req.params.name ?? '');
   const action = String(req.params.action ?? '');
 
@@ -502,7 +504,7 @@ router.get('/events', (req: Request, res: Response) => {
   });
 });
 
-router.get('/logs', async (req: Request, res: Response) => {
+router.get('/logs', requireAdmin, async (req: Request, res: Response) => {
   const unit = String(req.query.unit ?? 'all').trim();
   const lines = Math.min(500, Math.max(20, Number(req.query.lines ?? 150) || 150));
 
@@ -580,7 +582,7 @@ async function readFirewallStatus(): Promise<{
   }
 }
 
-router.get('/firewall', async (_req: Request, res: Response) => {
+router.get('/firewall', requireAdmin, async (_req: Request, res: Response) => {
   try {
     const status = await readFirewallStatus();
     res.json(status);
@@ -590,17 +592,19 @@ router.get('/firewall', async (_req: Request, res: Response) => {
   }
 });
 
-router.post('/firewall/toggle', async (req: Request, res: Response) => {
+router.post('/firewall/toggle', requireAdmin, async (req: Request, res: Response) => {
   const enabled = Boolean((req.body as { enabled?: boolean }).enabled);
   try {
     if (enabled) {
-      // Ensure Web UI (80) and SSH (22) are always allowed before enabling UFW
+      // Ensure Web UI (80/443) and SSH (22) are always allowed before enabling UFW
       await execFileAsync('ufw', ['allow', '80/tcp'], { timeout: 5000 });
+      await execFileAsync('ufw', ['allow', '443/tcp'], { timeout: 5000 }).catch(() => {});
       await execFileAsync('ufw', ['allow', '22/tcp'], { timeout: 5000 });
       await execFileAsync('ufw', ['--force', 'enable'], { timeout: 8000 });
     } else {
       await execFileAsync('ufw', ['disable'], { timeout: 8000 });
     }
+    await auditLog('firewall.toggle', { enabled, user: (req as Request & { user?: string }).user });
     const status = await readFirewallStatus();
     res.json({ success: true, ...status });
   } catch (err) {
@@ -609,7 +613,7 @@ router.post('/firewall/toggle', async (req: Request, res: Response) => {
   }
 });
 
-router.post('/firewall/rules', async (req: Request, res: Response) => {
+router.post('/firewall/rules', requireAdmin, async (req: Request, res: Response) => {
   const { port, protocol, action } = req.body as {
     port?: string | number;
     protocol?: 'tcp' | 'udp' | 'any';
@@ -627,6 +631,7 @@ router.post('/firewall/rules', async (req: Request, res: Response) => {
 
   try {
     await execFileAsync('ufw', [act, target], { timeout: 5000 });
+    await auditLog('firewall.rule.add', { action: act, target, user: (req as Request & { user?: string }).user });
     const status = await readFirewallStatus();
     res.json({ success: true, ...status });
   } catch (err) {
@@ -635,7 +640,7 @@ router.post('/firewall/rules', async (req: Request, res: Response) => {
   }
 });
 
-router.delete('/firewall/rules/:index', async (req: Request, res: Response) => {
+router.delete('/firewall/rules/:index', requireAdmin, async (req: Request, res: Response) => {
   const index = Number(req.params.index);
   if (!Number.isInteger(index) || index < 1) {
     res.status(400).json({ error: 'Invalid rule index' });
@@ -646,6 +651,7 @@ router.delete('/firewall/rules/:index', async (req: Request, res: Response) => {
     await execFileAsync('ufw', ['--force', 'delete', String(index)], {
       timeout: 5000,
     });
+    await auditLog('firewall.rule.delete', { index, user: (req as Request & { user?: string }).user });
     const status = await readFirewallStatus();
     res.json({ success: true, ...status });
   } catch (err) {
@@ -654,7 +660,7 @@ router.delete('/firewall/rules/:index', async (req: Request, res: Response) => {
   }
 });
 
-router.get('/processes', async (_req: Request, res: Response) => {
+router.get('/processes', requireAdmin, async (_req: Request, res: Response) => {
   try {
     const [mem, psRes] = await Promise.all([
       getMemoryInfo(),
@@ -692,6 +698,31 @@ router.get('/processes', async (_req: Request, res: Response) => {
     const message = err instanceof Error ? err.message : 'Failed to list processes';
     res.status(500).json({ error: message });
   }
+});
+
+router.get('/reboot-status', async (_req: Request, res: Response) => {
+  let rebootRequired = false;
+  let packages: string[] = [];
+  try {
+    await fs.access('/var/run/reboot-required');
+    rebootRequired = true;
+    const pkgRaw = await fs.readFile('/var/run/reboot-required.pkgs', 'utf-8').catch(() => '');
+    packages = pkgRaw
+      .split('\n')
+      .map((s) => s.trim())
+      .filter(Boolean);
+  } catch {
+    rebootRequired = false;
+  }
+  res.json({ rebootRequired, packages });
+});
+
+router.post('/reboot', requireAdmin, async (req: Request, res: Response) => {
+  await auditLog('system.reboot', { user: (req as Request & { user?: string }).user });
+  res.json({ success: true, message: 'Riavvio del sistema in corso...' });
+  setTimeout(() => {
+    execFileAsync('systemctl', ['reboot'], { timeout: 5000 }).catch(() => {});
+  }, 600);
 });
 
 export default router;

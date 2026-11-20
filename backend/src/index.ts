@@ -19,9 +19,19 @@ import { systemEvents } from './services/events.js';
 import { attachTerminalWebSocket } from './services/terminal.js';
 
 const PORT = Number(process.env.PORT ?? 3000);
+const BIND_HOST = process.env.BIND_HOST || '127.0.0.1';
 const app = express();
 
-app.use(cors());
+app.set('trust proxy', 1);
+
+// Restrict CORS: in production frontend & backend share the same origin via Nginx
+const allowedCorsOrigin = process.env.CORS_ORIGIN?.trim();
+if (allowedCorsOrigin) {
+  app.use(cors({ origin: allowedCorsOrigin, credentials: true }));
+} else if (process.env.NODE_ENV !== 'production') {
+  app.use(cors({ origin: /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/, credentials: true }));
+}
+
 app.use(express.json({ limit: '2mb' }));
 
 app.get('/api/health', (_req, res) => {
@@ -69,8 +79,8 @@ async function start(): Promise<void> {
   const server = http.createServer(app);
   attachTerminalWebSocket(server);
 
-  server.listen(PORT, '0.0.0.0', () => {
-    console.log(`SiloOs Backend listening on http://0.0.0.0:${PORT}`);
+  server.listen(PORT, BIND_HOST, () => {
+    console.log(`SiloOs Backend listening on http://${BIND_HOST}:${PORT}`);
     systemEvents.startBlockDeviceMonitor();
     startBackupScheduler();
     startFanControllerLoop();

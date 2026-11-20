@@ -3,11 +3,14 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { Router, Request, Response } from 'express';
 import { DATA_DIR } from '../services/docker.js';
+import { resolveRealPathSafe } from '../services/security.js';
 import { isUserAdmin } from './settings.js';
 import type { NasShare } from './shares.js';
 
 const router = Router();
-const SHARES_FILE = path.join(DATA_DIR, '.nas-os', 'shares.json');
+const NAS_OS_INTERNAL_DIR = path.resolve(path.join(DATA_DIR, '.nas-os'));
+const SHARES_FILE = path.join(NAS_OS_INTERNAL_DIR, 'shares.json');
+const DANGEROUS_INLINE_EXTS = new Set(['.html', '.htm', '.svg', '.xhtml', '.xml', '.js', '.mjs']);
 
 function isInsideRoot(target: string, root: string): boolean {
   const rTarget = path.resolve(target);
@@ -63,24 +66,29 @@ async function getUserFileContext(req: Request): Promise<{
   return { username, isAdmin: false, homePath, allowedRoots };
 }
 
-function checkUserAccess(
+async function checkUserAccess(
   ctx: Awaited<ReturnType<typeof getUserFileContext>>,
   targetPath: string,
   requiredMode: 'ro' | 'rw'
-): { allowed: boolean; matchedRoot: string | null } {
-  if (ctx.isAdmin) {
-    return { allowed: true, matchedRoot: null };
+): Promise<{ allowed: boolean; matchedRoot: string | null; realPath: string }> {
+  const realPath = await resolveRealPathSafe(targetPath);
+  // Never allow reading/writing internal SiloOs secrets directory via File Manager
+  if (isInsideRoot(realPath, NAS_OS_INTERNAL_DIR)) {
+    return { allowed: false, matchedRoot: null, realPath };
   }
-  const resolved = path.resolve(targetPath);
+  if (ctx.isAdmin) {
+    return { allowed: true, matchedRoot: null, realPath };
+  }
   for (const root of ctx.allowedRoots) {
-    if (isInsideRoot(resolved, root.path)) {
+    const realRoot = await resolveRealPathSafe(root.path);
+    if (isInsideRoot(realPath, realRoot)) {
       if (requiredMode === 'rw' && root.mode !== 'rw') {
-        return { allowed: false, matchedRoot: root.path };
+        return { allowed: false, matchedRoot: realRoot, realPath };
       }
-      return { allowed: true, matchedRoot: root.path };
+      return { allowed: true, matchedRoot: realRoot, realPath };
     }
   }
-  return { allowed: false, matchedRoot: null };
+  return { allowed: false, matchedRoot: null, realPath };
 }
 
 const PROTECTED_ROOTS = new Set([
@@ -104,6 +112,7 @@ const PROTECTED_ROOTS = new Set([
 function isProtectedPath(targetPath: string): boolean {
   const resolved = path.resolve(targetPath);
   if (PROTECTED_ROOTS.has(resolved)) return true;
+  if (isInsideRoot(resolved, NAS_OS_INTERNAL_DIR)) return true;
   for (const root of ['/bin', '/boot', '/dev', '/etc', '/lib', '/lib64', '/proc', '/sbin', '/sys', '/usr']) {
     if (resolved === root || resolved.startsWith(`${root}/`)) return true;
   }
@@ -126,7 +135,7 @@ router.get('/list', async (req: Request, res: Response) => {
   const requested = rawReq || (ctx.isAdmin ? DATA_DIR : ctx.homePath);
   const resolved = path.resolve(requested);
 
-  const access = checkUserAccess(ctx, resolved, 'ro');
+  const access = await checkUserAccess(ctx, resolved, 'ro');
   if (!access.allowed) {
     res.status(403).json({ error: 'Accesso negato a questa cartella' });
     return;
@@ -186,7 +195,7 @@ router.post('/mkdir', async (req: Request, res: Response) => {
     res.status(403).json({ error: 'Percorso di sistema protetto' });
     return;
   }
-  if (!checkUserAccess(ctx, target, 'rw').allowed) {
+  if (!(await checkUserAccess(ctx, target, 'rw')).allowed) {
     res.status(403).json({ error: 'Permessi di scrittura mancanti' });
     return;
   }
@@ -214,7 +223,7 @@ router.post('/touch', async (req: Request, res: Response) => {
     res.status(403).json({ error: 'Percorso di sistema protetto' });
     return;
   }
-  if (!checkUserAccess(ctx, target, 'rw').allowed) {
+  if (!(await checkUserAccess(ctx, target, 'rw')).allowed) {
     res.status(403).json({ error: 'Permessi di scrittura mancanti' });
     return;
   }
@@ -245,8 +254,8 @@ router.post('/rename', async (req: Request, res: Response) => {
     return;
   }
   if (
-    !checkUserAccess(ctx, resolvedOld, 'rw').allowed ||
-    !checkUserAccess(ctx, resolvedNew, 'rw').allowed
+    !(await checkUserAccess(ctx, resolvedOld, 'rw')).allowed ||
+    !(await checkUserAccess(ctx, resolvedNew, 'rw')).allowed
   ) {
     res.status(403).json({ error: 'Permessi di scrittura mancanti' });
     return;
@@ -308,7 +317,7 @@ router.post('/paste', async (req: Request, res: Response) => {
     res.status(403).json({ error: 'Cartella di destinazione protetta' });
     return;
   }
-  if (!checkUserAccess(ctx, resolvedTargetDir, 'rw').allowed) {
+  if (!(await checkUserAccess(ctx, resolvedTargetDir, 'rw')).allowed) {
     res.status(403).json({ error: 'Permessi di scrittura mancanti nella cartella di destinazione' });
     return;
   }
@@ -331,7 +340,7 @@ router.post('/paste', async (req: Request, res: Response) => {
         res.status(403).json({ error: 'Impossibile spostare questa directory principale' });
         return;
       }
-      if (!checkUserAccess(ctx, resolvedSrc, mode === 'cut' ? 'rw' : 'ro').allowed) {
+      if (!(await checkUserAccess(ctx, resolvedSrc, mode === 'cut' ? 'rw' : 'ro')).allowed) {
         res.status(403).json({ error: `Permesso negato su: ${path.basename(resolvedSrc)}` });
         return;
       }
@@ -391,7 +400,7 @@ router.delete('/delete', async (req: Request, res: Response) => {
     res.status(403).json({ error: 'Impossibile eliminare questa directory di sistema' });
     return;
   }
-  if (!checkUserAccess(ctx, resolved, 'rw').allowed) {
+  if (!(await checkUserAccess(ctx, resolved, 'rw')).allowed) {
     res.status(403).json({ error: 'Permessi di scrittura mancanti' });
     return;
   }
@@ -413,11 +422,12 @@ router.get('/download', async (req: Request, res: Response) => {
     return;
   }
   const resolved = path.resolve(target);
-  if (!checkUserAccess(ctx, resolved, 'ro').allowed) {
+  const access = await checkUserAccess(ctx, resolved, 'ro');
+  if (!access.allowed) {
     res.status(403).json({ error: 'Accesso negato' });
     return;
   }
-  res.download(resolved, (err) => {
+  res.download(access.realPath, (err) => {
     if (err && !res.headersSent) {
       res.status(404).json({ error: 'File non trovato o non leggibile' });
     }
@@ -432,12 +442,27 @@ router.get('/view', async (req: Request, res: Response) => {
     return;
   }
   const resolved = path.resolve(target);
-  if (!checkUserAccess(ctx, resolved, 'ro').allowed) {
+  const access = await checkUserAccess(ctx, resolved, 'ro');
+  if (!access.allowed) {
     res.status(403).json({ error: 'Accesso negato' });
     return;
   }
+  const ext = path.extname(access.realPath).toLowerCase();
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader(
+    'Content-Security-Policy',
+    "default-src 'none'; img-src 'self'; media-src 'self'; style-src 'unsafe-inline'; sandbox"
+  );
+  if (DANGEROUS_INLINE_EXTS.has(ext)) {
+    res.download(access.realPath, (err) => {
+      if (err && !res.headersSent) {
+        res.status(404).json({ error: 'File non trovato o non leggibile' });
+      }
+    });
+    return;
+  }
   res.setHeader('Content-Disposition', 'inline');
-  res.sendFile(resolved, (err) => {
+  res.sendFile(access.realPath, (err) => {
     if (err && !res.headersSent) {
       res.status(404).json({ error: 'File non trovato o non leggibile' });
     }
@@ -459,7 +484,7 @@ router.post('/upload', async (req: Request, res: Response) => {
     res.status(403).json({ error: 'Cartella di destinazione protetta' });
     return;
   }
-  if (!checkUserAccess(ctx, dir, 'rw').allowed) {
+  if (!(await checkUserAccess(ctx, dir, 'rw')).allowed) {
     res.status(403).json({ error: 'Permessi di scrittura mancanti' });
     return;
   }

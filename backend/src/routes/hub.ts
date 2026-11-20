@@ -6,6 +6,7 @@ import {
   renderStoreAppCompose,
   syncAppStoreFromRepo,
 } from '../services/appstore.js';
+import { requireAdmin } from './auth.js';
 
 const router = Router();
 
@@ -68,7 +69,7 @@ router.get('/store', async (_req: Request, res: Response) => {
   }
 });
 
-router.post('/store/sync', async (req: Request, res: Response) => {
+router.post('/store/sync', requireAdmin, async (req: Request, res: Response) => {
   const { repoUrl } = req.body as { repoUrl?: string };
   try {
     const syncInfo = await syncAppStoreFromRepo(repoUrl);
@@ -91,7 +92,7 @@ router.post('/store/:id/render', async (req: Request, res: Response) => {
   }
 });
 
-router.post('/import-url', async (req: Request, res: Response) => {
+router.post('/import-url', requireAdmin, async (req: Request, res: Response) => {
   const { url } = req.body as { url?: string };
   try {
     const composeYaml = await fetchComposeFromUrl(String(url ?? ''));

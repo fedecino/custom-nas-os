@@ -213,8 +213,11 @@ router.put('/', requireAdmin, async (req: Request, res: Response) => {
       },
     };
 
-    await fs.mkdir(path.dirname(SETTINGS_FILE), { recursive: true });
-    await fs.writeFile(SETTINGS_FILE, JSON.stringify(updated, null, 2), 'utf-8');
+    await fs.mkdir(path.dirname(SETTINGS_FILE), { recursive: true, mode: 0o700 });
+    await fs.writeFile(SETTINGS_FILE, JSON.stringify(updated, null, 2), {
+      encoding: 'utf-8',
+      mode: 0o600,
+    });
 
     const warnings: string[] = [];
     if (hostname && /^[a-zA-Z0-9-]{1,63}$/.test(hostname.trim())) {
@@ -284,12 +287,32 @@ export async function verifyLinuxUserPassword(
       return false;
     }
 
-    await execFileAsync(
-      'perl',
-      ['-e', 'exit(crypt($ARGV[0], $ARGV[1]) eq $ARGV[1] ? 0 : 1)', password, hash],
-      { timeout: 3000 }
-    );
-    return true;
+    // Pass password and hash strictly via stdin so they never appear in /proc or `ps`
+    const ok = await new Promise<boolean>((resolve) => {
+      const child = spawn(
+        'perl',
+        [
+          '-e',
+          'chomp(my $p = <STDIN>); chomp(my $h = <STDIN>); exit(defined($p) && defined($h) && crypt($p, $h) eq $h ? 0 : 1);',
+        ],
+        { stdio: ['pipe', 'ignore', 'ignore'] }
+      );
+      const timer = setTimeout(() => {
+        child.kill('SIGKILL');
+        resolve(false);
+      }, 3000);
+      child.on('error', () => {
+        clearTimeout(timer);
+        resolve(false);
+      });
+      child.on('close', (code) => {
+        clearTimeout(timer);
+        resolve(code === 0);
+      });
+      child.stdin.write(`${password}\n${hash}\n`);
+      child.stdin.end();
+    });
+    return ok;
   } catch {
     return false;
   }
@@ -337,10 +360,20 @@ function cleanReleaseNotes(raw: string): string {
     .trim();
 }
 
+async function isRebootRequired(): Promise<boolean> {
+  try {
+    await fs.access('/var/run/reboot-required');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 router.get('/updates', async (_req: Request, res: Response) => {
-  const [settings, installedVersion] = await Promise.all([
+  const [settings, installedVersion, rebootRequired] = await Promise.all([
     readFullSettings(),
     getInstalledVersion(),
+    isRebootRequired(),
   ]);
 
   let latestReleaseVersion: string | null = null;
@@ -384,6 +417,7 @@ router.get('/updates', async (_req: Request, res: Response) => {
     latestReleaseDate,
     latestReleaseNotes,
     updateAvailable,
+    rebootRequired,
   });
 });
 
@@ -419,14 +453,15 @@ async function verifyAnySudoPassword(
 const UPDATE_STATUS_FILE = '/run/nas-os-update.status';
 
 router.get('/updates/progress', async (_req: Request, res: Response) => {
+  const rebootRequired = await isRebootRequired();
   try {
     const raw = (await fs.readFile(UPDATE_STATUS_FILE, 'utf-8')).trim();
     const colonIdx = raw.indexOf(':');
     const state = colonIdx > 0 ? raw.slice(0, colonIdx) : raw;
     const message = colonIdx > 0 ? raw.slice(colonIdx + 1) : '';
-    res.json({ state, message });
+    res.json({ state, message, rebootRequired });
   } catch {
-    res.json({ state: 'idle', message: '' });
+    res.json({ state: 'idle', message: '', rebootRequired });
   }
 });
 
@@ -1185,8 +1220,11 @@ async function applyNginxSslConfig(cfg: SslConfig): Promise<void> {
         `ssl_certificate_key ${cfg.keyPath};`,
         'ssl_protocols TLSv1.2 TLSv1.3;',
         'ssl_ciphers HIGH:!aNULL:!MD5;',
+        'ssl_session_tickets off;',
+        'ssl_prefer_server_ciphers off;',
       ];
       if (cfg.forceHttps) {
+        lines.push('add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;');
         lines.push('if ($scheme = http) { return 301 https://$host$request_uri; }');
       }
       await fs.writeFile(NGINX_SSL_CONF, lines.join('\n') + '\n', 'utf-8');
@@ -1311,6 +1349,12 @@ router.put('/ssl', requireAdmin, async (req: Request, res: Response) => {
 
     let certPath = body.certPath?.trim() || current.certPath;
     let keyPath = body.keyPath?.trim() || current.keyPath;
+
+    const SAFE_PEM_PATH_RE = /^\/[a-zA-Z0-9._\/-]+$/;
+    if (!SAFE_PEM_PATH_RE.test(certPath) || !SAFE_PEM_PATH_RE.test(keyPath)) {
+      res.status(400).json({ error: 'Percorso certificato o chiave SSL non valido' });
+      return;
+    }
 
     if (body.certPem?.trim() && body.keyPem?.trim()) {
       const customCert = path.join(SSL_DIR, 'custom.crt');

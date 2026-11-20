@@ -64,6 +64,9 @@ export function validateComposeYaml(yamlContent: string): Record<string, unknown
 export async function ensureBaseDirectories(): Promise<void> {
   await fs.mkdir(STACKS_DIR, { recursive: true });
   await fs.mkdir(APPDATA_DIR, { recursive: true });
+  const internalDir = path.join(DATA_DIR, '.nas-os');
+  await fs.mkdir(internalDir, { recursive: true, mode: 0o700 });
+  await fs.chmod(internalDir, 0o700).catch(() => {});
 }
 
 export async function listContainers(): Promise<ContainerInfo[]> {

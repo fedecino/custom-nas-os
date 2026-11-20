@@ -4,7 +4,8 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { Router, Request, Response } from 'express';
 import { DATA_DIR } from '../services/docker.js';
-import { requireAdmin } from './auth.js';
+import { auditLog } from '../services/security.js';
+import { requireAdmin, revokeUserSessions } from './auth.js';
 
 const execFileAsync = promisify(execFile);
 const router = Router();
@@ -129,8 +130,8 @@ router.post('/', requireAdmin, async (req: Request, res: Response) => {
     });
     return;
   }
-  if (!password || password.length < 4) {
-    res.status(400).json({ error: 'Password must be at least 4 characters' });
+  if (!password || password.length < 8) {
+    res.status(400).json({ error: 'Password must be at least 8 characters' });
     return;
   }
 
@@ -180,8 +181,8 @@ router.put('/:username/password', requireAdmin, async (req: Request, res: Respon
     res.status(400).json({ error: 'Invalid username' });
     return;
   }
-  if (!password || password.length < 4) {
-    res.status(400).json({ error: 'Password must be at least 4 characters' });
+  if (!password || password.length < 8) {
+    res.status(400).json({ error: 'Password must be at least 8 characters' });
     return;
   }
 
@@ -190,6 +191,8 @@ router.put('/:username/password', requireAdmin, async (req: Request, res: Respon
     if (updateSamba !== false) {
       await setSambaPassword(username, password).catch(() => {});
     }
+    revokeUserSessions(username);
+    await auditLog('users.password.change', { username, by: (req as Request & { user?: string }).user });
     res.json({ success: true, username });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Password update failed';
@@ -207,6 +210,8 @@ router.delete('/:username', requireAdmin, async (req: Request, res: Response) =>
   try {
     await execFileAsync('smbpasswd', ['-x', username]).catch(() => {});
     await execFileAsync('userdel', ['-r', username], { timeout: 10000 });
+    revokeUserSessions(username);
+    await auditLog('users.delete', { username, by: (req as Request & { user?: string }).user });
     res.json({ success: true, username });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Failed to delete user';
