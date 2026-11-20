@@ -67,22 +67,24 @@ lb config \
   --memtest none \
   --iso-application "SiloOs" \
   --iso-volume "SILOOS_X86_64" \
-  --bootappend-live "boot=live components quiet loglevel=3" \
+  --bootappend-live "boot=live components hostname=siloos quiet loglevel=3" \
   --bootappend-install "cdrom-detect/try-usb=true quiet loglevel=3"
 
 echo "==> [5/6] Copying NAS-OS configs, hooks, archives, and preseed..."
 mkdir -p config/package-lists config/hooks/normal config/hooks/binary config/includes.installer config/archives
 
 # Auto-boot Live system after 3 seconds on BOTH BIOS (isolinux/syslinux) and UEFI (grub)
+# Note: live-build executes binary hooks with CWD inside binary/, so check both relative and binary/ paths
 cat > config/hooks/binary/0100-autoboot-headless.hook.binary <<'HOOK_EOF'
 #!/bin/bash
 set -euo pipefail
 
-echo "[SiloOs Binary Hook] Configuring 3-second headless auto-boot for BIOS & UEFI..."
+echo "[SiloOs Binary Hook] Configuring 3-second headless auto-boot for BIOS & UEFI (cwd=$(pwd))..."
 
 # 1. BIOS Legacy (isolinux / syslinux) — timeout is in tenths of a second (30 = 3s)
-for cfg in binary/isolinux/isolinux.cfg binary/syslinux/syslinux.cfg; do
+for cfg in isolinux/isolinux.cfg syslinux/syslinux.cfg binary/isolinux/isolinux.cfg binary/syslinux/syslinux.cfg; do
   if [ -f "$cfg" ]; then
+    echo "[SiloOs Binary Hook] Patching BIOS bootloader: $cfg"
     if grep -qi '^timeout ' "$cfg"; then
       sed -i 's/^timeout .*/timeout 30/I' "$cfg"
     else
@@ -95,8 +97,9 @@ for cfg in binary/isolinux/isolinux.cfg binary/syslinux/syslinux.cfg; do
 done
 
 # 2. UEFI (GRUB) — timeout is in seconds
-for gcfg in binary/boot/grub/grub.cfg binary/EFI/boot/grub.cfg; do
+for gcfg in boot/grub/grub.cfg boot/grub/config.cfg EFI/boot/grub.cfg binary/boot/grub/grub.cfg binary/boot/grub/config.cfg binary/EFI/boot/grub.cfg; do
   if [ -f "$gcfg" ]; then
+    echo "[SiloOs Binary Hook] Patching UEFI bootloader: $gcfg"
     if grep -q 'set timeout=' "$gcfg"; then
       sed -i 's/set timeout=.*/set timeout=3/' "$gcfg"
     else

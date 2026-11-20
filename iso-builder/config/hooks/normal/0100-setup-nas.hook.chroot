@@ -1,6 +1,9 @@
 #!/bin/bash
 set -euo pipefail
 
+echo "[NAS-OS Hook] Setting default hostname to siloos..."
+echo "siloos" > /etc/hostname
+
 echo "[NAS-OS Hook] Creating /DATA directory structure..."
 mkdir -p /DATA/AppData /DATA/Stacks /DATA/Media /DATA/Shares /DATA/Disks /DATA/.nas-os
 chmod 755 /DATA /DATA/AppData /DATA/Stacks /DATA/Media /DATA/Shares /DATA/Disks
